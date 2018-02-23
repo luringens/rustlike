@@ -4,3 +4,5 @@ version = "0.1.0"
 authors = ["Stian Soltvedt <soltvedt.stian@gmail.com>"]
 
 [dependencies]
+tcod = "0.12.*"
+rand = "0.4.*"
