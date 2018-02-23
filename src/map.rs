@@ -22,9 +22,9 @@ pub fn is_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
         return true;
     }
 
-    objects.iter().any(|object| {
-        object.blocks && object.pos() == (x, y)
-    })
+    objects
+        .iter()
+        .any(|object| object.blocks && object.pos() == (x, y))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,17 +36,25 @@ pub struct Tile {
 
 impl Tile {
     pub fn empty() -> Self {
-        Tile { blocked: false, block_sight: false, explored: false }
+        Tile {
+            blocked: false,
+            block_sight: false,
+            explored: false,
+        }
     }
-    
+
     pub fn wall() -> Self {
-        Tile { blocked: true, block_sight: true, explored: false }
+        Tile {
+            blocked: true,
+            block_sight: true,
+            explored: false,
+        }
     }
 }
 
 pub fn make_map(objects: &mut Vec<Object>) -> Map {
     let mut map = vec![vec![Tile::wall(); MAP_HEIGHT as usize]; MAP_WIDTH as usize];
-    
+
     let mut rooms = vec![];
     for _ in 0..MAX_ROOMS {
         let w = rand::thread_rng().gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
@@ -54,8 +62,10 @@ pub fn make_map(objects: &mut Vec<Object>) -> Map {
         let x = rand::thread_rng().gen_range(0, MAP_WIDTH - w);
         let y = rand::thread_rng().gen_range(0, MAP_HEIGHT - h);
         let new_room = Rect::new(x, y, w, h);
-        
-        let failed = rooms.iter().any(|other_room| new_room.intersects_with(other_room));
+
+        let failed = rooms
+            .iter()
+            .any(|other_room| new_room.intersects_with(other_room));
         if !failed {
             create_room(&new_room, &mut map);
             place_objects(&new_room, &map, objects);
@@ -113,7 +123,7 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>) {
             } else {
                 Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true)
             };
-            
+
             monster.alive = true;
             objects.push(monster);
         }
@@ -129,7 +139,12 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
-        Rect { x1: x, y1: y, x2: x + w, y2: y + h }
+        Rect {
+            x1: x,
+            y1: y,
+            x2: x + w,
+            y2: y + h,
+        }
     }
 
     pub fn center(&self) -> (i32, i32) {
@@ -138,8 +153,8 @@ impl Rect {
         (center_x, center_y)
     }
 
-    pub fn intersects_with (&self, other: &Rect) -> bool {
-        (self.x1 <= other.x2) && (self.x2 >= other.x1) &&
-            (self.y1 <= other.y2) && (self.y2 >= other.y1)
+    pub fn intersects_with(&self, other: &Rect) -> bool {
+        (self.x1 <= other.x2) && (self.x2 >= other.x1) && (self.y1 <= other.y2)
+            && (self.y2 >= other.y1)
     }
 }

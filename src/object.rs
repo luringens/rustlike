@@ -34,7 +34,7 @@ impl Object {
         con.set_default_foreground(self.color);
         con.put_char(self.x, self.y, self.char, BackgroundFlag::None);
     }
-    
+
     pub fn clear(&self, con: &mut Console) {
         con.put_char(self.x, self.y, ' ', BackgroundFlag::None);
     }
@@ -61,17 +61,18 @@ pub fn player_move_or_attack(id: usize, dx: i32, dy: i32, map: &Map, objects: &m
     let x = objects[PLAYER].x + dx;
     let y = objects[PLAYER].y + dy;
 
-    let target_id = objects.iter().position(|object| {
-        object.pos() == (x, y)
-    });
+    let target_id = objects.iter().position(|object| object.pos() == (x, y));
 
     match target_id {
         Some(target_id) => {
-            println!("The {} laughs at your puny efforts to attack him!", objects[target_id].name);
-        },
+            println!(
+                "The {} laughs at your puny efforts to attack him!",
+                objects[target_id].name
+            );
+        }
         None => {
             move_by(id, dx, dy, map, objects);
-        },
+        }
     }
 }
 
