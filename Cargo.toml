@@ -2,6 +2,8 @@
 name = "rustlike"
 version = "0.1.0"
 authors = ["Stian Soltvedt <soltvedt.stian@gmail.com>"]
+repository = "https://github.com/stisol/rustlike"
+license = "MIT"
 
 [dependencies]
 tcod = "0.12.*"
