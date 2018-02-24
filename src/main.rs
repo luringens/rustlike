@@ -5,43 +5,24 @@ extern crate tcod;
 
 mod map;
 mod object;
+mod renderer;
 
 use map::*;
 use object::*;
+use renderer::MSG_HEIGHT;
+use map::{Map, MAP_HEIGHT, MAP_WIDTH};
 
 use tcod::console::*;
 use tcod::colors::{self, Color};
-use tcod::map::{FovAlgorithm, Map as FovMap};
+use tcod::map::Map as FovMap;
+use tcod::input::{self, Event, Key};
 
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
-
 const LIMIT_FPS: i32 = 20;
-
-const COLOR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
-const COLOR_LIGHT_WALL: Color = Color {
-    r: 130,
-    g: 110,
-    b: 50,
-};
-const COLOR_DARK_GROUND: Color = Color {
-    r: 50,
-    g: 50,
-    b: 150,
-};
-const COLOR_LIGHT_GROUND: Color = Color {
-    r: 200,
-    g: 180,
-    b: 50,
-};
-
-const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
-const FOV_LIGHT_WALLS: bool = true;
-const TORCH_RADIUS: i32 = 10;
-
-use map::{Map, MAP_HEIGHT, MAP_WIDTH};
-
 pub const PLAYER: usize = 0;
+
+type Messages = Vec<(String, Color)>;
 
 fn main() {
     let mut root = Root::initializer()
@@ -52,6 +33,7 @@ fn main() {
         .init();
 
     let mut con = Offscreen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+    let mut panel = Offscreen::new(SCREEN_WIDTH, renderer::PANEL_HEIGHT);
     tcod::system::set_fps(LIMIT_FPS);
 
     let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
@@ -81,15 +63,35 @@ fn main() {
 
     let mut previous_player_position = (-1, -1);
 
+    let mut messages = vec![];
+    message(
+        &mut messages,
+        "Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.",
+        colors::RED,
+    );
+
+    let mut mouse = Default::default();
+    let mut key = Default::default();
+
+    // Main loop.
     while !root.window_closed() {
+        match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
+            Some((_, Event::Mouse(m))) => mouse = m,
+            Some((_, Event::Key(k))) => key = k,
+            _ => key = Default::default(),
+        }
+
         let fov_recompute = previous_player_position != (objects[PLAYER].x, objects[PLAYER].y);
-        render_all(
+        renderer::render_all(
             &mut root,
             &mut con,
+            &mut panel,
             &objects,
             &mut map,
+            &messages,
             &mut fov_map,
             fov_recompute,
+            mouse,
         );
 
         root.flush();
@@ -99,7 +101,7 @@ fn main() {
         }
 
         previous_player_position = (objects[PLAYER].x, objects[PLAYER].y);
-        let player_action = handle_keys(&mut root, &mut objects, &map);
+        let player_action = handle_keys(key, &mut root, &mut objects, &map, &mut messages);
         if player_action == PlayerAction::Exit {
             break;
         }
@@ -107,7 +109,7 @@ fn main() {
         if objects[PLAYER].alive && player_action != PlayerAction::DidntTakeTurn {
             for id in 0..objects.len() {
                 if objects[id].ai.is_some() {
-                    ai_take_turn(id, &map, &mut objects, &fov_map);
+                    ai_take_turn(id, &map, &mut objects, &fov_map, &mut messages);
                 }
             }
         }
@@ -116,47 +118,53 @@ fn main() {
 
 /// Handles keyboard input and returns whether or not
 /// the application should exit.
-fn handle_keys(root: &mut Root, objects: &mut [Object], map: &Map) -> PlayerAction {
+fn handle_keys(
+    key: Key,
+    root: &mut Root,
+    objects: &mut [Object],
+    map: &Map,
+    messages: &mut Messages,
+) -> PlayerAction {
     use tcod::input::Key;
     use tcod::input::KeyCode::*;
     use PlayerAction::*;
 
-    let key = root.wait_for_keypress(true);
     let player_alive = objects[PLAYER].alive;
     match (key, player_alive) {
-        (Key { code: NumPad8, .. }, true) => {
-            player_move_or_attack(PLAYER, 0, -1, map, objects);
+        (Key { code: NumPad8, .. }, true) | (Key { code: Up, .. }, true) => {
+            player_move_or_attack(PLAYER, 0, -1, map, objects, messages);
             TookTurn
         }
-        (Key { code: NumPad2, .. }, true) => {
-            player_move_or_attack(PLAYER, 0, 1, map, objects);
+        (Key { code: NumPad2, .. }, true) | (Key { code: Down, .. }, true) => {
+            player_move_or_attack(PLAYER, 0, 1, map, objects, messages);
             TookTurn
         }
-        (Key { code: NumPad4, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, 0, map, objects);
+        (Key { code: NumPad4, .. }, true) | (Key { code: Left, .. }, true) => {
+            player_move_or_attack(PLAYER, -1, 0, map, objects, messages);
             TookTurn
         }
-        (Key { code: NumPad6, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, 0, map, objects);
+        (Key { code: NumPad6, .. }, true) | (Key { code: Right, .. }, true) => {
+            player_move_or_attack(PLAYER, 1, 0, map, objects, messages);
             TookTurn
         }
         (Key { code: NumPad7, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, -1, map, objects);
+            player_move_or_attack(PLAYER, -1, -1, map, objects, messages);
             TookTurn
         }
         (Key { code: NumPad9, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, -1, map, objects);
+            player_move_or_attack(PLAYER, 1, -1, map, objects, messages);
             TookTurn
         }
         (Key { code: NumPad3, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, 1, map, objects);
+            player_move_or_attack(PLAYER, 1, 1, map, objects, messages);
             TookTurn
         }
         (Key { code: NumPad1, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, 1, map, objects);
+            player_move_or_attack(PLAYER, -1, 1, map, objects, messages);
             TookTurn
         }
         (Key { code: NumPad5, .. }, true) => TookTurn,
+        (Key { code: End, .. }, true) => TookTurn,
         (
             Key {
                 code: Enter,
@@ -174,69 +182,10 @@ fn handle_keys(root: &mut Root, objects: &mut [Object], map: &Map) -> PlayerActi
     }
 }
 
-fn render_all(
-    root: &mut Root,
-    con: &mut Offscreen,
-    objects: &[Object],
-    map: &mut Map,
-    fov_map: &mut FovMap,
-    fov_recompute: bool,
-) {
-    // TODO: Make render not take mutable references.
-    if fov_recompute {
-        let player = &objects[PLAYER];
-        fov_map.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+fn message<T: Into<String>>(messages: &mut Messages, message: T, color: Color) {
+    if messages.len() == MSG_HEIGHT {
+        messages.remove(0);
     }
 
-    let mut to_draw: Vec<_> = objects
-        .iter()
-        .filter(|o| fov_map.is_in_fov(o.x, o.y))
-        .collect();
-    to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
-    for object in &to_draw {
-        if fov_map.is_in_fov(object.x, object.y) {
-            object.draw(con);
-        }
-    }
-
-    for y in 0..MAP_HEIGHT {
-        for x in 0..MAP_WIDTH {
-            let visible = fov_map.is_in_fov(x, y);
-            let wall = map[x as usize][y as usize].block_sight;
-            let color = match (visible, wall) {
-                (false, true) => COLOR_DARK_WALL,
-                (false, false) => COLOR_DARK_GROUND,
-                (true, true) => COLOR_LIGHT_WALL,
-                (true, false) => COLOR_LIGHT_GROUND,
-            };
-
-            let explored = &mut map[x as usize][y as usize].explored;
-            if visible {
-                *explored = true;
-            }
-            if *explored {
-                con.set_char_background(x, y, color, BackgroundFlag::Set);
-            }
-        }
-    }
-
-    blit(
-        con,
-        (0, 0),
-        (SCREEN_WIDTH, SCREEN_HEIGHT),
-        root,
-        (0, 0),
-        1.0,
-        1.0,
-    );
-
-    if let Some(fighter) = objects[PLAYER].fighter {
-        root.print_ex(
-            1,
-            SCREEN_HEIGHT - 2,
-            BackgroundFlag::None,
-            TextAlignment::Left,
-            format!("HP: {}/{}", fighter.hp, fighter.max_hp),
-        );
-    }
+    messages.push((message.into(), color));
 }

@@ -6,7 +6,7 @@ use std::cmp;
 use rand::Rng;
 
 pub const MAP_WIDTH: i32 = 80;
-pub const MAP_HEIGHT: i32 = 45;
+pub const MAP_HEIGHT: i32 = 43;
 
 const ROOM_MAX_SIZE: i32 = 10;
 const ROOM_MIN_SIZE: i32 = 6;
