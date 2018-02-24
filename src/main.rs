@@ -8,7 +8,6 @@ mod object;
 
 use map::*;
 use object::*;
-use object::{Object, PlayerAction};
 
 use tcod::console::*;
 use tcod::colors::{self, Color};
@@ -55,9 +54,17 @@ fn main() {
     let mut con = Offscreen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
     tcod::system::set_fps(LIMIT_FPS);
 
-    let player = Object::new(0, 0, '@', "player", colors::WHITE, true);
+    let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
+    player.alive = true;
+    player.fighter = Some(Fighter {
+        max_hp: 30,
+        hp: 30,
+        defense: 2,
+        power: 5,
+        on_death: DeathCallback::Player,
+    });
+
     let mut objects = vec![player];
-    objects[PLAYER].alive = true;
     let mut map = make_map(&mut objects);
 
     let mut fov_map = FovMap::new(MAP_WIDTH, MAP_HEIGHT);
@@ -98,9 +105,9 @@ fn main() {
         }
 
         if objects[PLAYER].alive && player_action != PlayerAction::DidntTakeTurn {
-            for object in &objects {
-                if (object as *const _) != (&objects[PLAYER] as *const _) {
-                    println!("The {} growls!", object.name);
+            for id in 0..objects.len() {
+                if objects[id].ai.is_some() {
+                    ai_take_turn(id, &map, &mut objects, &fov_map);
                 }
             }
         }
@@ -117,22 +124,39 @@ fn handle_keys(root: &mut Root, objects: &mut [Object], map: &Map) -> PlayerActi
     let key = root.wait_for_keypress(true);
     let player_alive = objects[PLAYER].alive;
     match (key, player_alive) {
-        (Key { code: Up, .. }, true) => {
+        (Key { code: NumPad8, .. }, true) => {
             player_move_or_attack(PLAYER, 0, -1, map, objects);
             TookTurn
         }
-        (Key { code: Down, .. }, true) => {
+        (Key { code: NumPad2, .. }, true) => {
             player_move_or_attack(PLAYER, 0, 1, map, objects);
             TookTurn
         }
-        (Key { code: Left, .. }, true) => {
+        (Key { code: NumPad4, .. }, true) => {
             player_move_or_attack(PLAYER, -1, 0, map, objects);
             TookTurn
         }
-        (Key { code: Right, .. }, true) => {
+        (Key { code: NumPad6, .. }, true) => {
             player_move_or_attack(PLAYER, 1, 0, map, objects);
             TookTurn
         }
+        (Key { code: NumPad7, .. }, true) => {
+            player_move_or_attack(PLAYER, -1, -1, map, objects);
+            TookTurn
+        }
+        (Key { code: NumPad9, .. }, true) => {
+            player_move_or_attack(PLAYER, 1, -1, map, objects);
+            TookTurn
+        }
+        (Key { code: NumPad3, .. }, true) => {
+            player_move_or_attack(PLAYER, 1, 1, map, objects);
+            TookTurn
+        }
+        (Key { code: NumPad1, .. }, true) => {
+            player_move_or_attack(PLAYER, -1, 1, map, objects);
+            TookTurn
+        }
+        (Key { code: NumPad5, .. }, true) => TookTurn,
         (
             Key {
                 code: Enter,
@@ -164,7 +188,12 @@ fn render_all(
         fov_map.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
     }
 
-    for object in objects {
+    let mut to_draw: Vec<_> = objects
+        .iter()
+        .filter(|o| fov_map.is_in_fov(o.x, o.y))
+        .collect();
+    to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
+    for object in &to_draw {
         if fov_map.is_in_fov(object.x, object.y) {
             object.draw(con);
         }
@@ -200,4 +229,14 @@ fn render_all(
         1.0,
         1.0,
     );
+
+    if let Some(fighter) = objects[PLAYER].fighter {
+        root.print_ex(
+            1,
+            SCREEN_HEIGHT - 2,
+            BackgroundFlag::None,
+            TextAlignment::Left,
+            format!("HP: {}/{}", fighter.hp, fighter.max_hp),
+        );
+    }
 }

@@ -1,6 +1,6 @@
 extern crate rand;
 
-use object::Object;
+use object::*;
 use tcod::colors;
 use std::cmp;
 use rand::Rng;
@@ -119,9 +119,27 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>) {
 
         if !is_blocked(x, y, map, objects) {
             let mut monster = if rand::random::<f32>() < 0.8 {
-                Object::new(x, y, 'o', "orc", colors::DESATURATED_GREEN, true)
+                let mut orc = Object::new(x, y, 'o', "orc", colors::DESATURATED_GREEN, true);
+                orc.fighter = Some(Fighter {
+                    max_hp: 10,
+                    hp: 10,
+                    defense: 0,
+                    power: 3,
+                    on_death: DeathCallback::Monster,
+                });
+                orc.ai = Some(Ai);
+                orc
             } else {
-                Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true)
+                let mut troll = Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true);
+                troll.fighter = Some(Fighter {
+                    max_hp: 16,
+                    hp: 16,
+                    defense: 1,
+                    power: 4,
+                    on_death: DeathCallback::Monster,
+                });
+                troll.ai = Some(Ai);
+                troll
             };
 
             monster.alive = true;
