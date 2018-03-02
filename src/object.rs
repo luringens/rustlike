@@ -7,6 +7,7 @@ use tcod::map::Map as FovMap;
 
 use std::cmp;
 
+use item::Item;
 use {message, Messages, PLAYER};
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct Object {
     pub alive: bool,
     pub fighter: Option<Fighter>,
     pub ai: Option<Ai>,
+    pub item: Option<Item>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,6 +61,7 @@ impl Object {
             alive: false,
             fighter: None,
             ai: None,
+            item: None,
         }
     }
 
@@ -121,6 +124,15 @@ impl Object {
                 ),
                 colors::WHITE,
             );
+        }
+    }
+
+    pub fn heal(&mut self, amount: i32) {
+        if let Some(ref mut fighter) = self.fighter {
+            fighter.hp += amount;
+            if fighter.hp > fighter.max_hp {
+                fighter.hp = fighter.max_hp;
+            }
         }
     }
 }

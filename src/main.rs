@@ -6,9 +6,11 @@ extern crate tcod;
 mod map;
 mod object;
 mod renderer;
+mod item;
 
 use map::*;
 use object::*;
+use item::{use_item, pick_item_up};
 use renderer::MSG_HEIGHT;
 use map::{Map, MAP_HEIGHT, MAP_WIDTH};
 
@@ -73,6 +75,8 @@ fn main() {
     let mut mouse = Default::default();
     let mut key = Default::default();
 
+    let mut inventory = vec![];
+
     // Main loop.
     while !root.window_closed() {
         match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
@@ -101,7 +105,7 @@ fn main() {
         }
 
         previous_player_position = (objects[PLAYER].x, objects[PLAYER].y);
-        let player_action = handle_keys(key, &mut root, &mut objects, &map, &mut messages);
+        let player_action = handle_keys(key, &mut root, &mut objects, &map, &mut messages, &mut inventory);
         if player_action == PlayerAction::Exit {
             break;
         }
@@ -121,9 +125,10 @@ fn main() {
 fn handle_keys(
     key: Key,
     root: &mut Root,
-    objects: &mut [Object],
+    objects: &mut Vec<Object>,
     map: &Map,
     messages: &mut Messages,
+    inventory: &mut Vec<Object>
 ) -> PlayerAction {
     use tcod::input::Key;
     use tcod::input::KeyCode::*;
@@ -165,6 +170,25 @@ fn handle_keys(
         }
         (Key { code: NumPad5, .. }, true) => TookTurn,
         (Key { code: End, .. }, true) => TookTurn,
+        (Key { printable: 'g', .. }, true) => {
+            let item_id = objects.iter().position(|object| {
+                object.pos() == objects[PLAYER].pos() && object.item.is_some()
+            });
+            if let Some(item_id) = item_id {
+                pick_item_up(item_id, objects, inventory, messages);
+            }
+            DidntTakeTurn
+        }
+        (Key { printable: 'i', .. }, true) => {
+            let inventory_index = inventory_menu(
+                inventory,
+                "Press the key next to an item to use it, or any other to cancel.\n",
+                root);
+            if let Some(inventory_index) = inventory_index {
+                use_item(inventory_index, inventory, objects, messages);
+            }
+            TookTurn
+        }
         (
             Key {
                 code: Enter,
@@ -188,4 +212,14 @@ fn message<T: Into<String>>(messages: &mut Messages, message: T, color: Color) {
     }
 
     messages.push((message.into(), color));
+}
+
+fn inventory_menu(inventory: &[Object], header: &str, root: &mut Root) -> Option<usize> {
+    let options = if inventory.len() == 0 {
+        vec!["Inventory is empty.".into()]
+    } else {
+        inventory.iter().map(|item| item.name.clone()).collect()
+    };
+
+    menu(header, &options, INVENTORY_WIDTH, root)
 }
