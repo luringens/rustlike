@@ -4,6 +4,7 @@ use map::Map;
 use tcod::console::*;
 use tcod::colors::{self, Color};
 use tcod::map::Map as FovMap;
+use rand::{self, Rng};
 
 use std::cmp;
 
@@ -46,8 +47,14 @@ pub enum DeathCallback {
     Monster,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Ai;
+#[derive(Clone, Debug, PartialEq)]
+pub enum Ai {
+    Basic,
+    Confused {
+        previous_ai: Box<Ai>,
+        num_turns: i32,
+    },
+}
 
 impl Object {
     pub fn new(x: i32, y: i32, char: char, name: &str, color: Color, blocks: bool) -> Self {
@@ -135,6 +142,10 @@ impl Object {
             }
         }
     }
+
+    pub fn distance(&self, x: i32, y: i32) -> f32 {
+        (((x - self.x).pow(2) + (y - self.y).pow(2)) as f32).sqrt()
+    }
 }
 
 impl DeathCallback {
@@ -196,8 +207,19 @@ pub fn ai_take_turn(
     map: &Map,
     objects: &mut [Object],
     fov_map: &FovMap,
-    messages: &mut Messages
+    messages: &mut Messages,
 ) {
+    use self::Ai::*;
+    if let Some(ai) = objects[monster_id].ai.take() {
+        let new_ai = match ai {
+            Basic => ai_basic(monster_id, map, objects, fov_map, messages),
+            Confused {
+                previous_ai,
+                num_turns,
+            } => ai_confused(monster_id, map, objects, messages, previous_ai, num_turns),
+        };
+        objects[monster_id].ai = Some(new_ai);
+    }
     let (monster_x, monster_y) = objects[monster_id].pos();
     if fov_map.is_in_fov(monster_x, monster_y) {
         if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
@@ -207,6 +229,56 @@ pub fn ai_take_turn(
             let (monster, player) = mut_two(monster_id, PLAYER, objects);
             monster.attack(player, messages);
         }
+    }
+}
+
+pub fn ai_basic(
+    monster_id: usize,
+    map: &Map,
+    objects: &mut [Object],
+    fov_map: &FovMap,
+    messages: &mut Messages,
+) -> Ai {
+    let (monster_x, monster_y) = objects[monster_id].pos();
+    if fov_map.is_in_fov(monster_x, monster_y) {
+        if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
+            let (player_x, player_y) = objects[PLAYER].pos();
+            move_towards(monster_id, player_x, player_y, map, objects);
+        } else if objects[PLAYER].fighter.map_or(false, |f| f.hp > 0) {
+            let (monster, player) = mut_two(monster_id, PLAYER, objects);
+            monster.attack(player, messages);
+        }
+    }
+    Ai::Basic
+}
+
+pub fn ai_confused(
+    monster_id: usize,
+    map: &Map,
+    objects: &mut [Object],
+    messages: &mut Messages,
+    previous_ai: Box<Ai>,
+    num_turns: i32,
+) -> Ai {
+    if num_turns >= 0 {
+        move_by(
+            monster_id,
+            rand::thread_rng().gen_range(-1, 2),
+            rand::thread_rng().gen_range(-1, 2),
+            map,
+            objects,
+        );
+        Ai::Confused {
+            previous_ai: previous_ai,
+            num_turns: num_turns - 1,
+        }
+    } else {
+        message(
+            messages,
+            format!("The {} is no longer confused!", objects[monster_id].name),
+            colors::RED,
+        );
+        *previous_ai
     }
 }
 

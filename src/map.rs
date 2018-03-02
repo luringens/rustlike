@@ -129,7 +129,7 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>) {
                     power: 3,
                     on_death: DeathCallback::Monster,
                 });
-                orc.ai = Some(Ai);
+                orc.ai = Some(Ai::Basic);
                 orc
             } else {
                 let mut troll = Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true);
@@ -140,7 +140,7 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>) {
                     power: 4,
                     on_death: DeathCallback::Monster,
                 });
-                troll.ai = Some(Ai);
+                troll.ai = Some(Ai::Basic);
                 troll
             };
 
@@ -156,9 +156,40 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>) {
         let y = rand::thread_rng().gen_range(room.y1 + 1, room.y2);
 
         if !is_blocked(x, y, map, objects) {
-            let mut object = Object::new(x, y, '!', "healing potion", colors::VIOLET, false);
-            object.item = Some(Item::Heal);
-            objects.push(object);
+            let dice = rand::random::<f32>();
+            let item = if dice < 0.7 {
+                let mut object = Object::new(x, y, '!', "healing potion", colors::VIOLET, false);
+                object.item = Some(Item::Heal);
+                object
+            } else if dice < 0.7 + 0.1 {
+                let mut object = Object::new(
+                    x,
+                    y,
+                    '#',
+                    "scroll of lightning bolt",
+                    colors::LIGHT_YELLOW,
+                    false,
+                );
+                object.item = Some(Item::Lightning);
+                object
+            } else if dice < 0.7 + 0.2 {
+                let mut object =
+                    Object::new(x, y, '#', "scroll of fireball", colors::LIGHT_YELLOW, false);
+                object.item = Some(Item::Fireball);
+                object
+            } else {
+                let mut object = Object::new(
+                    x,
+                    y,
+                    '#',
+                    "scroll of confusion",
+                    colors::LIGHT_YELLOW,
+                    false,
+                );
+                object.item = Some(Item::Confuse);
+                object
+            };
+            objects.push(item);
         }
     }
 }

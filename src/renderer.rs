@@ -1,5 +1,3 @@
-use std::ascii::AsciiExt;
-
 use tcod::console::*;
 use tcod::colors::{self, Color};
 use tcod::map::{FovAlgorithm, Map as FovMap};
@@ -7,7 +5,7 @@ use tcod::input::Mouse;
 
 use map::*;
 use object::*;
-use {Messages, PLAYER, SCREEN_HEIGHT, SCREEN_WIDTH};
+use {Messages, Tcod, PLAYER, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 const COLOR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
 const COLOR_LIGHT_WALL: Color = Color {
@@ -38,27 +36,24 @@ pub const MSG_HEIGHT: usize = PANEL_HEIGHT as usize - 1;
 const MSG_WIDTH: i32 = SCREEN_WIDTH - BAR_WIDTH - 2;
 const MSG_X: i32 = BAR_WIDTH + 2;
 
-const INVENTORY_WIDTH: i32 = 50;
+pub const INVENTORY_WIDTH: i32 = 50;
 
 pub fn render_all(
-    root: &mut Root,
-    con: &mut Offscreen,
-    panel: &mut Offscreen,
+    tcod: &mut Tcod,
     objects: &[Object],
     map: &mut Map,
     messages: &Messages,
-    fov_map: &mut FovMap,
     fov_recompute: bool,
-    mouse: Mouse,
 ) {
     // TODO: Make render not take mutable references.
     if fov_recompute {
         let player = &objects[PLAYER];
-        fov_map.compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+        tcod.fov
+            .compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
 
         for y in 0..MAP_HEIGHT {
             for x in 0..MAP_WIDTH {
-                let visible = fov_map.is_in_fov(x, y);
+                let visible = tcod.fov.is_in_fov(x, y);
                 let wall = map[x as usize][y as usize].block_sight;
                 let color = match (visible, wall) {
                     (false, true) => COLOR_DARK_WALL,
@@ -72,7 +67,8 @@ pub fn render_all(
                     *explored = true;
                 }
                 if *explored {
-                    con.set_char_background(x, y, color, BackgroundFlag::Set);
+                    tcod.con
+                        .set_char_background(x, y, color, BackgroundFlag::Set);
                 }
             }
         }
@@ -80,37 +76,45 @@ pub fn render_all(
 
     let mut to_draw: Vec<_> = objects
         .iter()
-        .filter(|o| fov_map.is_in_fov(o.x, o.y))
+        .filter(|o| tcod.fov.is_in_fov(o.x, o.y))
         .collect();
     to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
     for object in &to_draw {
-        if fov_map.is_in_fov(object.x, object.y) {
-            object.draw(con);
+        if tcod.fov.is_in_fov(object.x, object.y) {
+            object.draw(&mut tcod.con);
         }
     }
 
-    blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
+    blit(
+        &tcod.con,
+        (0, 0),
+        (MAP_WIDTH, MAP_HEIGHT),
+        &mut tcod.root,
+        (0, 0),
+        1.0,
+        1.0,
+    );
 
-    panel.set_default_background(colors::BLACK);
-    panel.clear();
+    tcod.panel.set_default_background(colors::BLACK);
+    tcod.panel.clear();
 
     // print the game messages, one line at a time
     let mut y = MSG_HEIGHT as i32;
     for &(ref msg, color) in messages.iter().rev() {
-        let msg_height = panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+        let msg_height = tcod.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
         y -= msg_height;
         if y < 0 {
             break;
         }
-        panel.set_default_foreground(color);
-        panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+        tcod.panel.set_default_foreground(color);
+        tcod.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
     }
 
     // show the player's stats
     let hp = objects[PLAYER].fighter.map_or(0, |f| f.hp);
     let max_hp = objects[PLAYER].fighter.map_or(0, |f| f.max_hp);
     render_bar(
-        panel,
+        &mut tcod.panel,
         1,
         1,
         BAR_WIDTH,
@@ -122,20 +126,20 @@ pub fn render_all(
     );
 
     // Display names of objects under the mouse
-    panel.set_default_foreground(colors::LIGHT_GREY);
-    panel.print_ex(
+    tcod.panel.set_default_foreground(colors::LIGHT_GREY);
+    tcod.panel.print_ex(
         1,
         0,
         BackgroundFlag::None,
         TextAlignment::Left,
-        get_names_under_mouse(mouse, objects, fov_map),
+        get_names_under_mouse(tcod.mouse, objects, &tcod.fov),
     );
 
     blit(
-        panel,
+        &tcod.panel,
         (0, 0),
         (SCREEN_WIDTH, PANEL_HEIGHT),
-        root,
+        &mut tcod.root,
         (0, PANEL_Y),
         1.0,
         1.0,
@@ -177,18 +181,26 @@ fn render_bar(
     );
 }
 
-fn get_names_under_mouse(mouse: Mouse, objects: &[Object], fov_map: &FovMap) -> String {
+fn get_names_under_mouse(mouse: Mouse, objects: &[Object], fov: &FovMap) -> String {
     let (x, y) = (mouse.cx as i32, mouse.cy as i32);
     objects
         .iter()
-        .filter(|obj| obj.pos() == (x, y) && fov_map.is_in_fov(obj.x, obj.y))
+        .filter(|obj| obj.pos() == (x, y) && fov.is_in_fov(obj.x, obj.y))
         .map(|obj| obj.name.clone())
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-pub fn menu<T: AsRef<str>>(header: &str, options: &[T], width: i32, root: &mut Root) -> Option<usize> {
-    assert!(options.len() <= 26, "Cannot have a menu with more than 26 options.");
+pub fn menu<T: AsRef<str>>(
+    header: &str,
+    options: &[T],
+    width: i32,
+    root: &mut Root,
+) -> Option<usize> {
+    assert!(
+        options.len() <= 26,
+        "Cannot have a menu with more than 26 options."
+    );
 
     // Calculate total height for header and contents
     let header_height = root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header);
@@ -196,17 +208,39 @@ pub fn menu<T: AsRef<str>>(header: &str, options: &[T], width: i32, root: &mut R
 
     let mut window = Offscreen::new(width, height);
     window.set_default_foreground(colors::WHITE);
-    window.print_rect_ex(0, 0, width, height, BackgroundFlag::None, TextAlignment::Left, header);
+    window.print_rect_ex(
+        0,
+        0,
+        width,
+        height,
+        BackgroundFlag::None,
+        TextAlignment::Left,
+        header,
+    );
 
     for (index, option_text) in options.iter().enumerate() {
         let menu_letter = (b'a' + index as u8) as char;
         let text = format!("({}) {}", menu_letter, option_text.as_ref());
-        window.print_ex(0, header_height + index as i32, BackgroundFlag::None, TextAlignment::Left, text);
+        window.print_ex(
+            0,
+            header_height + index as i32,
+            BackgroundFlag::None,
+            TextAlignment::Left,
+            text,
+        );
     }
 
     let x = SCREEN_WIDTH / 2 - width / 2;
     let y = SCREEN_HEIGHT / 2 - height / 2;
-    blit(&window, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (x, y), 1.0, 0.7);
+    blit(
+        &window,
+        (0, 0),
+        (MAP_WIDTH, MAP_HEIGHT),
+        root,
+        (x, y),
+        1.0,
+        0.7,
+    );
 
     root.flush();
     let key = root.wait_for_keypress(true);
