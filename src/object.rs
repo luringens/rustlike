@@ -9,9 +9,9 @@ use rand::{self, Rng};
 use std::cmp;
 
 use item::Item;
-use {message, Messages, PLAYER};
+use ::*;
 
-#[derive(Debug)]
+#[derive(Debug/*, Serialize, Deserialize*/)]
 pub struct Object {
     pub x: i32,
     pub y: i32,
@@ -25,14 +25,14 @@ pub struct Object {
     pub item: Option<Item>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PlayerAction {
     TookTurn,
     DidntTakeTurn,
     Exit,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Fighter {
     pub max_hp: i32,
     pub hp: i32,
@@ -41,13 +41,13 @@ pub struct Fighter {
     pub on_death: DeathCallback,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DeathCallback {
     Player,
     Monster,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Ai {
     Basic,
     Confused {
@@ -110,21 +110,19 @@ impl Object {
         }
     }
 
-    pub fn attack(&mut self, target: &mut Object, messages: &mut Messages) {
+    pub fn attack(&mut self, target: &mut Object, log: &mut Messages) {
         let damage = self.fighter.map_or(0, |f| f.power) - target.fighter.map_or(0, |f| f.defense);
         if damage > 0 {
-            message(
-                messages,
+            log.add(
                 format!(
                     "{} attacks {} for {} hit points.",
                     self.name, target.name, damage
                 ),
                 colors::RED,
             );
-            target.take_damage(damage, messages);
+            target.take_damage(damage, log);
         } else {
-            message(
-                messages,
+            log.add(
                 format!(
                     "{} attacks {} but it has no effect!",
                     self.name, target.name
@@ -204,19 +202,18 @@ pub fn move_towards(id: usize, target_x: i32, target_y: i32, map: &Map, objects:
 
 pub fn ai_take_turn(
     monster_id: usize,
-    map: &Map,
     objects: &mut [Object],
+    game: &mut Game,
     fov_map: &FovMap,
-    messages: &mut Messages,
 ) {
     use self::Ai::*;
     if let Some(ai) = objects[monster_id].ai.take() {
         let new_ai = match ai {
-            Basic => ai_basic(monster_id, map, objects, fov_map, messages),
+            Basic => ai_basic(monster_id, &game.map, objects, fov_map, &mut game.log),
             Confused {
                 previous_ai,
                 num_turns,
-            } => ai_confused(monster_id, map, objects, messages, previous_ai, num_turns),
+            } => ai_confused(monster_id, &game.map, objects, &mut game.log, previous_ai, num_turns),
         };
         objects[monster_id].ai = Some(new_ai);
     }
@@ -224,10 +221,10 @@ pub fn ai_take_turn(
     if fov_map.is_in_fov(monster_x, monster_y) {
         if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
             let (player_x, player_y) = objects[PLAYER].pos();
-            move_towards(monster_id, player_x, player_y, map, objects);
+            move_towards(monster_id, player_x, player_y, &game.map, objects);
         } else if objects[PLAYER].fighter.map_or(false, |f| f.hp > 0) {
             let (monster, player) = mut_two(monster_id, PLAYER, objects);
-            monster.attack(player, messages);
+            monster.attack(player, &mut game.log);
         }
     }
 }
@@ -256,7 +253,7 @@ pub fn ai_confused(
     monster_id: usize,
     map: &Map,
     objects: &mut [Object],
-    messages: &mut Messages,
+    log: &mut Messages,
     previous_ai: Box<Ai>,
     num_turns: i32,
 ) -> Ai {
@@ -273,8 +270,7 @@ pub fn ai_confused(
             num_turns: num_turns - 1,
         }
     } else {
-        message(
-            messages,
+        log.add(
             format!("The {} is no longer confused!", objects[monster_id].name),
             colors::RED,
         );
@@ -295,14 +291,14 @@ fn mut_two<T>(first_index: usize, second_index: usize, items: &mut [T]) -> (&mut
     }
 }
 
-fn player_death(player: &mut Object, messages: &mut Messages) {
-    message(messages, "You died!", colors::RED);
+fn player_death(player: &mut Object, log: &mut Messages) {
+    log.add("You died!", colors::RED);
     player.char = '%';
     player.color = colors::DARK_RED;
 }
 
-fn monster_death(monster: &mut Object, messages: &mut Messages) {
-    message(messages, format!("{} is dead!", monster.name), colors::RED);
+fn monster_death(monster: &mut Object, log: &mut Messages) {
+    log.add(format!("{} is dead!", monster.name), colors::RED);
     monster.char = '%';
     monster.color = colors::DARK_RED;
     monster.blocks = false;

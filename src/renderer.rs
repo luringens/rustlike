@@ -5,7 +5,7 @@ use tcod::input::Mouse;
 
 use map::*;
 use object::*;
-use {Messages, Tcod, PLAYER, SCREEN_HEIGHT, SCREEN_WIDTH};
+use ::*;
 
 const COLOR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
 const COLOR_LIGHT_WALL: Color = Color {
@@ -38,13 +38,7 @@ const MSG_X: i32 = BAR_WIDTH + 2;
 
 pub const INVENTORY_WIDTH: i32 = 50;
 
-pub fn render_all(
-    tcod: &mut Tcod,
-    objects: &[Object],
-    map: &mut Map,
-    messages: &Messages,
-    fov_recompute: bool,
-) {
+pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_recompute: bool) {
     // TODO: Make render not take mutable references.
     if fov_recompute {
         let player = &objects[PLAYER];
@@ -54,7 +48,7 @@ pub fn render_all(
         for y in 0..MAP_HEIGHT {
             for x in 0..MAP_WIDTH {
                 let visible = tcod.fov.is_in_fov(x, y);
-                let wall = map[x as usize][y as usize].block_sight;
+                let wall = game.map[x as usize][y as usize].block_sight;
                 let color = match (visible, wall) {
                     (false, true) => COLOR_DARK_WALL,
                     (false, false) => COLOR_DARK_GROUND,
@@ -62,7 +56,7 @@ pub fn render_all(
                     (true, false) => COLOR_LIGHT_GROUND,
                 };
 
-                let explored = &mut map[x as usize][y as usize].explored;
+                let explored = &mut game.map[x as usize][y as usize].explored;
                 if visible {
                     *explored = true;
                 }
@@ -100,7 +94,7 @@ pub fn render_all(
 
     // print the game messages, one line at a time
     let mut y = MSG_HEIGHT as i32;
-    for &(ref msg, color) in messages.iter().rev() {
+    for &(ref msg, color) in game.log.iter().rev() {
         let msg_height = tcod.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
         y -= msg_height;
         if y < 0 {
@@ -203,7 +197,11 @@ pub fn menu<T: AsRef<str>>(
     );
 
     // Calculate total height for header and contents
-    let header_height = root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header);
+    let header_height = if header.is_empty() {
+        0
+    } else {
+        root.get_height_rect(0, 0, width, SCREEN_HEIGHT, header)
+    };
     let height = options.len() as i32 + header_height;
 
     let mut window = Offscreen::new(width, height);
