@@ -8,7 +8,7 @@ use rand::{self, Rng};
 
 use std::cmp;
 
-use item::Item;
+use item::{Item, Equipment};
 use ::*;
 
 #[derive(Debug/*, Serialize, Deserialize*/)]
@@ -23,6 +23,8 @@ pub struct Object {
     pub fighter: Option<Fighter>,
     pub ai: Option<Ai>,
     pub item: Option<Item>,
+    pub equipment: Option<Equipment>,
+    pub always_visible: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -39,6 +41,7 @@ pub struct Fighter {
     pub defense: i32,
     pub power: i32,
     pub on_death: DeathCallback,
+    pub xp: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -69,6 +72,8 @@ impl Object {
             fighter: None,
             ai: None,
             item: None,
+            always_visible: false,
+            equipment: None,
         }
     }
 
@@ -96,7 +101,7 @@ impl Object {
         ((dx.pow(2) + dy.pow(2)) as f32).sqrt()
     }
 
-    pub fn take_damage(&mut self, damage: i32, messages: &mut Messages) {
+    pub fn take_damage(&mut self, damage: i32, messages: &mut Messages) -> Option<i32> {
         if let Some(fighter) = self.fighter.as_mut() {
             if damage > 0 {
                 fighter.hp -= damage;
@@ -106,8 +111,10 @@ impl Object {
             if fighter.hp <= 0 {
                 self.alive = false;
                 fighter.on_death.callback(self, messages);
+                return Some(fighter.xp);
             }
         }
+        None
     }
 
     pub fn attack(&mut self, target: &mut Object, log: &mut Messages) {
@@ -120,7 +127,9 @@ impl Object {
                 ),
                 colors::RED,
             );
-            target.take_damage(damage, log);
+            if let Some(xp) = target.take_damage(damage, log) {
+                self.fighter.as_mut().unwrap().xp += xp;
+            };
         } else {
             log.add(
                 format!(
@@ -143,6 +152,19 @@ impl Object {
 
     pub fn distance(&self, x: i32, y: i32) -> f32 {
         (((x - self.x).pow(2) + (y - self.y).pow(2)) as f32).sqrt()
+    }
+
+    pub fn equip(&mut self, log: Messages) {
+        if self.item.is_none() {
+            log.add(format!("Can't equip {:?} because it's not an Item.", self),
+                colors::RED);
+            return
+        }
+        if let Some(ref mut equipment) = self.equipment {
+            if !equipment.equipped {
+                equipment.equipped = true;
+            }
+        }
     }
 }
 
@@ -200,12 +222,7 @@ pub fn move_towards(id: usize, target_x: i32, target_y: i32, map: &Map, objects:
     move_by(id, dx, dy, map, objects);
 }
 
-pub fn ai_take_turn(
-    monster_id: usize,
-    objects: &mut [Object],
-    game: &mut Game,
-    fov_map: &FovMap,
-) {
+pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, fov_map: &FovMap) {
     use self::Ai::*;
     if let Some(ai) = objects[monster_id].ai.take() {
         let new_ai = match ai {
@@ -213,19 +230,16 @@ pub fn ai_take_turn(
             Confused {
                 previous_ai,
                 num_turns,
-            } => ai_confused(monster_id, &game.map, objects, &mut game.log, previous_ai, num_turns),
+            } => ai_confused(
+                monster_id,
+                &game.map,
+                objects,
+                &mut game.log,
+                previous_ai,
+                num_turns,
+            ),
         };
         objects[monster_id].ai = Some(new_ai);
-    }
-    let (monster_x, monster_y) = objects[monster_id].pos();
-    if fov_map.is_in_fov(monster_x, monster_y) {
-        if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
-            let (player_x, player_y) = objects[PLAYER].pos();
-            move_towards(monster_id, player_x, player_y, &game.map, objects);
-        } else if objects[PLAYER].fighter.map_or(false, |f| f.hp > 0) {
-            let (monster, player) = mut_two(monster_id, PLAYER, objects);
-            monster.attack(player, &mut game.log);
-        }
     }
 }
 
@@ -298,7 +312,14 @@ fn player_death(player: &mut Object, log: &mut Messages) {
 }
 
 fn monster_death(monster: &mut Object, log: &mut Messages) {
-    log.add(format!("{} is dead!", monster.name), colors::RED);
+    log.add(
+        format!(
+            "{} is dead! You gain {} experience points.",
+            monster.name,
+            monster.fighter.unwrap().xp
+        ),
+        colors::ORANGE,
+    );
     monster.char = '%';
     monster.color = colors::DARK_RED;
     monster.blocks = false;

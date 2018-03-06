@@ -5,13 +5,26 @@ use object::*;
 use renderer::render_all;
 use ::*;
 
-const HEAL_AMOUNT: i32 = 4;
-const LIGHTNING_DAMAGE: i32 = 20;
+const HEAL_AMOUNT: i32 = 40;
+const LIGHTNING_DAMAGE: i32 = 40;
 const LIGHTNING_RANGE: i32 = 5;
 const CONFUSE_RANGE: i32 = 8;
 const CONFUSE_NUM_TURNS: i32 = 10;
 const FIREBALL_RADIUS: i32 = 3;
-const FIREBALL_DAMAGE: i32 = 12;
+const FIREBALL_DAMAGE: i32 = 25;
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Slot {
+    LeftHand,
+    RightHand,
+    Head,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Equipment {
+    slot: Slot,
+    equipped: bool,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Item {
@@ -27,11 +40,7 @@ enum UseResult {
     Cancelled,
 }
 
-pub fn pick_item_up(
-    object_id: usize,
-    objects: &mut Vec<Object>,
-    game: &mut Game
-) {
+pub fn pick_item_up(object_id: usize, objects: &mut Vec<Object>, game: &mut Game) {
     if game.inventory.len() >= 26 {
         game.log.add(
             format!(
@@ -42,10 +51,8 @@ pub fn pick_item_up(
         );
     } else {
         let item = objects.swap_remove(object_id);
-        game.log.add(
-            format!("You picked up a {}!", item.name),
-            colors::GREEN,
-        );
+        game.log
+            .add(format!("You picked up a {}!", item.name), colors::GREEN);
         game.inventory.push(item);
     }
 }
@@ -58,10 +65,7 @@ pub fn drop_item(
 ) {
     let mut item = inventory.remove(inventory_id);
     item.set_pos(objects[PLAYER].x, objects[PLAYER].y);
-    log.add(
-        format!("You dropped a {}.", item.name),
-        colors::YELLOW,
-    );
+    log.add(format!("You dropped a {}.", item.name), colors::YELLOW);
     objects.push(item);
 }
 
@@ -96,16 +100,11 @@ fn cast_heal(
 ) -> UseResult {
     if let Some(fighter) = objects[PLAYER].fighter {
         if fighter.hp == fighter.max_hp {
-            game.log.add(
-                "You are already at full health.",
-                colors::RED,
-            );
+            game.log.add("You are already at full health.", colors::RED);
             return UseResult::Cancelled;
         }
-        game.log.add(
-            "Your wounds start to feel better!",
-            colors::LIGHT_VIOLET,
-        );
+        game.log
+            .add("Your wounds start to feel better!", colors::LIGHT_VIOLET);
         objects[PLAYER].heal(HEAL_AMOUNT);
         return UseResult::UsedUp;
     }
@@ -128,13 +127,13 @@ fn cast_lightning(
             ),
             colors::LIGHT_BLUE,
         );
-        objects[monster_id].take_damage(LIGHTNING_DAMAGE, &mut game.log);
+        if let Some(xp) = objects[monster_id].take_damage(LIGHTNING_DAMAGE, &mut game.log) {
+            objects[PLAYER].fighter.as_mut().unwrap().xp += xp;
+        };
         UseResult::UsedUp
     } else {
-        game.log.add(
-            "No enemy is close enough to strike.",
-            colors::RED,
-        );
+        game.log
+            .add("No enemy is close enough to strike.", colors::RED);
         UseResult::Cancelled
     }
 }
@@ -165,10 +164,8 @@ fn cast_confuse(
         );
         UseResult::UsedUp
     } else {
-        game.log.add(
-            "No enemy is close enough to strike.",
-            colors::RED,
-        );
+        game.log
+            .add("No enemy is close enough to strike.", colors::RED);
         UseResult::Cancelled
     }
 }
@@ -195,7 +192,8 @@ fn cast_fireball(
         colors::ORANGE,
     );
 
-    for obj in objects {
+    let mut xp_to_gain = 0;
+    for (id, obj) in objects.iter_mut().enumerate() {
         if obj.distance(x, y) <= FIREBALL_RADIUS as f32 && obj.fighter.is_some() {
             game.log.add(
                 format!(
@@ -204,9 +202,15 @@ fn cast_fireball(
                 ),
                 colors::ORANGE,
             );
-            obj.take_damage(FIREBALL_DAMAGE, &mut game.log);
+            if let Some(xp) = obj.take_damage(FIREBALL_DAMAGE, &mut game.log) {
+                if id != PLAYER {
+                    xp_to_gain += xp;
+                }
+            }
         }
     }
+
+    objects[PLAYER].fighter.as_mut().unwrap().xp += xp_to_gain;
 
     UseResult::UsedUp
 }

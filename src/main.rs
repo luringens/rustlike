@@ -1,10 +1,10 @@
 // Following https://tomassedovic.github.io/roguelike-tutorial/part-5-combat.html
 
+extern crate rand;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate serde;
-extern crate rand;
 extern crate tcod;
 
 mod map;
@@ -27,6 +27,10 @@ const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
 const LIMIT_FPS: i32 = 20;
 const PLAYER: usize = 0;
+const LEVEL_UP_BASE: i32 = 200;
+const LEVEL_UP_FACTOR: i32 = 150;
+const LEVEL_SCREEN_WIDTH: i32 = 40;
+const CHARACTER_SCREEN_WIDTH: i32 = 30;
 
 type Messages = Vec<(String, Color)>;
 
@@ -44,6 +48,8 @@ pub struct Game {
     map: Map,
     log: Messages,
     inventory: Vec<Object>,
+    dungeon_level: u32,
+    player_level: i32,
 }
 
 fn main() {
@@ -68,13 +74,26 @@ fn main() {
 
 fn main_menu(tcod: &mut Tcod) {
     let img = tcod::image::Image::from_file("menu_background.png")
-        .ok().expect("Backgrounds image not found");
+        .ok()
+        .expect("Backgrounds image not found");
     while !tcod.root.window_closed() {
         tcod::image::blit_2x(&img, (0, 0), (-1, -1), &mut tcod.root, (0, 0));
 
         tcod.root.set_default_foreground(colors::LIGHT_YELLOW);
-        tcod.root.print_ex(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 4, BackgroundFlag::None, TextAlignment::Center, "TOMBS OF THE ANCIENT KINGS");
-        tcod.root.print_ex(SCREEN_WIDTH/2, SCREEN_HEIGHT - 2, BackgroundFlag::None, TextAlignment::Center, "Luringen");
+        tcod.root.print_ex(
+            SCREEN_WIDTH / 2,
+            SCREEN_HEIGHT / 2 - 4,
+            BackgroundFlag::None,
+            TextAlignment::Center,
+            "TOMBS OF THE ANCIENT KINGS",
+        );
+        tcod.root.print_ex(
+            SCREEN_WIDTH / 2,
+            SCREEN_HEIGHT - 2,
+            BackgroundFlag::None,
+            TextAlignment::Center,
+            "Luringen",
+        );
 
         let choices = &["Play a new game", "Continue last game", "Quit"];
         let choice = menu("", choices, 24, &mut tcod.root);
@@ -106,6 +125,8 @@ fn play_game(objects: &mut Vec<Object>, game: &mut Game, tcod: &mut Tcod) {
 
         tcod.root.flush();
 
+        level_up(objects, game, tcod);
+
         for object in objects.iter_mut() {
             object.clear(&mut tcod.con);
         }
@@ -130,18 +151,21 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
     let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
     player.alive = true;
     player.fighter = Some(Fighter {
-        max_hp: 30,
-        hp: 30,
-        defense: 2,
-        power: 5,
+        max_hp: 100,
+        hp: 100,
+        defense: 1,
+        power: 4,
         on_death: DeathCallback::Player,
+        xp: 0,
     });
 
     let mut objects = vec![player];
     let mut game = Game {
-        map: make_map(&mut objects),
+        map: make_map(&mut objects, 1),
         log: vec![],
         inventory: vec![],
+        dungeon_level: 1,
+        player_level: 1,
     };
 
     initialize_fov(&game.map, tcod);
@@ -234,7 +258,7 @@ fn handle_keys(
             if let Some(inventory_index) = inventory_index {
                 use_item(inventory_index, objects, tcod, game);
             }
-            TookTurn
+            DidntTakeTurn
         }
         (Key { printable: 'd', .. }, true) => {
             let inventory_index = inventory_menu(
@@ -244,6 +268,35 @@ fn handle_keys(
             );
             if let Some(inventory_index) = inventory_index {
                 drop_item(inventory_index, &mut game.inventory, objects, &mut game.log);
+            }
+            DidntTakeTurn
+        }
+        (Key { printable: '<', .. }, true) => {
+            let player_on_stairs = objects
+                .iter()
+                .any(|object| object.pos() == objects[PLAYER].pos() && object.name == "stairs");
+            if player_on_stairs {
+                next_level(game, objects, tcod);
+            }
+            DidntTakeTurn
+        }
+        (Key { printable: 'c', .. }, true) => {
+            let player = &objects[PLAYER];
+            let level = game.player_level;
+            let level_up_xp = LEVEL_UP_BASE + level * LEVEL_UP_FACTOR;
+            if let Some(fighter) = player.fighter.as_ref() {
+                let msg = format!(
+                    "Character information
+Level: {}
+Experience: {}
+Experience to level up: {}
+
+Maximum HP: {}
+Attack: {}
+Defense: {}",
+                    level, fighter.xp, level_up_xp, fighter.max_hp, fighter.power, fighter.defense
+                );
+                msgbox(&msg, CHARACTER_SCREEN_WIDTH, &mut tcod.root);
             }
             DidntTakeTurn
         }
@@ -285,4 +338,70 @@ impl MessageLog for Vec<(String, Color)> {
         }
         self.push((message.into(), color));
     }
+}
+
+fn next_level(game: &mut Game, objects: &mut Vec<Object>, tcod: &mut Tcod) {
+    game.log.add(
+        "You take a moment to rest, and recover your strength.",
+        colors::VIOLET,
+    );
+    let heal_hp = objects[PLAYER].fighter.map_or(0, |f| f.max_hp / 2);
+    objects[PLAYER].heal(heal_hp);
+
+    game.log.add(
+        "After a rare moment of peace, you descend deeper into the heart of the dungeon...",
+        colors::RED,
+    );
+    game.dungeon_level += 1;
+    game.map = make_map(objects, game.dungeon_level);
+    initialize_fov(&game.map, tcod);
+}
+
+fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
+    let player = &mut objects[PLAYER];
+    let level_up_xp = LEVEL_UP_BASE + game.player_level * LEVEL_UP_FACTOR;
+    if player.fighter.as_ref().map_or(0, |f| f.xp) >= level_up_xp {
+        game.player_level += 1;
+        game.log.add(
+            format!(
+                "Your battle skills grow stronger! You reached level {}!",
+                game.player_level
+            ),
+            colors::YELLOW,
+        );
+
+        let fighter = player.fighter.as_mut().unwrap();
+        let mut choice = None;
+        while choice.is_none() {
+            choice = menu(
+                "Level up! Choose a stat to raise:\n",
+                &[
+                    format!("Constitution (+20 HP, from {})", fighter.max_hp),
+                    format!("Strength (+1 attack, from {})", fighter.power),
+                    format!("Agility (+1 defense, from {})", fighter.defense),
+                ],
+                LEVEL_SCREEN_WIDTH,
+                &mut tcod.root,
+            );
+        }
+        fighter.xp -= level_up_xp;
+        match choice.unwrap() {
+            0 => {
+                fighter.max_hp += 20;
+                fighter.hp += 20;
+            }
+            1 => {
+                fighter.power += 1;
+            }
+            2 => {
+                fighter.defense += 1;
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn msgbox(text: &str, width: i32, root: &mut Root) {
+    let options: &[&str] = &[];
+    menu(text, options, width, root);
 }

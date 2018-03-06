@@ -70,13 +70,14 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
 
     let mut to_draw: Vec<_> = objects
         .iter()
-        .filter(|o| tcod.fov.is_in_fov(o.x, o.y))
+        .filter(|o| {
+            tcod.fov.is_in_fov(o.x, o.y)
+                || (o.always_visible && game.map[o.x as usize][o.y as usize].explored)
+        })
         .collect();
     to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
     for object in &to_draw {
-        if tcod.fov.is_in_fov(object.x, object.y) {
-            object.draw(&mut tcod.con);
-        }
+        object.draw(&mut tcod.con);
     }
 
     blit(
@@ -117,6 +118,14 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
         max_hp,
         colors::LIGHT_RED,
         colors::DARKER_RED,
+    );
+
+    tcod.panel.print_ex(
+        1,
+        3,
+        BackgroundFlag::None,
+        TextAlignment::Left,
+        format!("Dungeon level: {}", game.dungeon_level),
     );
 
     // Display names of objects under the mouse
