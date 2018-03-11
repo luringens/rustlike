@@ -22,8 +22,11 @@ pub enum Slot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Equipment {
-    slot: Slot,
-    equipped: bool,
+    pub slot: Slot,
+    pub equipped: bool,
+    pub power_bonus: i32,
+    pub defense_bonus: i32,
+    pub max_hp_bonus: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -32,12 +35,25 @@ pub enum Item {
     Lightning,
     Confuse,
     Fireball,
+    Sword,
+    Shield,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 enum UseResult {
     UsedUp,
+    UsedAndKept,
     Cancelled,
+}
+
+impl std::fmt::Display for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            Slot::LeftHand => write!(f, "left hand"),
+            Slot::RightHand => write!(f, "right hand"),
+            Slot::Head => write!(f, "head"),
+        }
+    }
 }
 
 pub fn pick_item_up(object_id: usize, objects: &mut Vec<Object>, game: &mut Game) {
@@ -53,19 +69,30 @@ pub fn pick_item_up(object_id: usize, objects: &mut Vec<Object>, game: &mut Game
         let item = objects.swap_remove(object_id);
         game.log
             .add(format!("You picked up a {}!", item.name), colors::GREEN);
+        let index = game.inventory.len();
+        let slot = item.equipment.map(|e| e.slot);
         game.inventory.push(item);
+
+        // Autoequip
+        if let Some(slot) = slot {
+            if get_equipment_in_slot(slot, &game.inventory).is_none() {
+                game.inventory[index].equip(&mut game.log);
+            }
+        }
     }
 }
 
 pub fn drop_item(
     inventory_id: usize,
-    inventory: &mut Vec<Object>,
     objects: &mut Vec<Object>,
-    log: &mut Messages,
+    game: &mut Game,
 ) {
-    let mut item = inventory.remove(inventory_id);
+    let mut item = game.inventory.remove(inventory_id);
+    if item.equipment.is_some() {
+        item.unequip(&mut game.log);
+    }
     item.set_pos(objects[PLAYER].x, objects[PLAYER].y);
-    log.add(format!("You dropped a {}.", item.name), colors::YELLOW);
+    game.log.add(format!("You dropped a {}.", item.name), colors::YELLOW);
     objects.push(item);
 }
 
@@ -77,11 +104,14 @@ pub fn use_item(inventory_id: usize, objects: &mut [Object], tcod: &mut Tcod, ga
             Lightning => cast_lightning,
             Confuse => cast_confuse,
             Fireball => cast_fireball,
+            Sword => toggle_equipment,
+            Shield => toggle_equipment,
         };
         match on_use(inventory_id, objects, game, tcod) {
             UseResult::UsedUp => {
                 game.inventory.remove(inventory_id);
             }
+            UseResult::UsedAndKept => {}
             UseResult::Cancelled => game.log.add("Cancelled", colors::WHITE),
         }
     } else {
@@ -98,14 +128,15 @@ fn cast_heal(
     game: &mut Game,
     _tcod: &mut Tcod,
 ) -> UseResult {
-    if let Some(fighter) = objects[PLAYER].fighter {
-        if fighter.hp == fighter.max_hp {
+    let player = &mut objects[PLAYER];
+    if let Some(fighter) = player.fighter {
+        if fighter.hp == player.max_hp(game) {
             game.log.add("You are already at full health.", colors::RED);
             return UseResult::Cancelled;
         }
         game.log
             .add("Your wounds start to feel better!", colors::LIGHT_VIOLET);
-        objects[PLAYER].heal(HEAL_AMOUNT);
+        player.heal(HEAL_AMOUNT, game);
         return UseResult::UsedUp;
     }
     UseResult::Cancelled
@@ -280,4 +311,38 @@ fn target_monster(
             None => return None,
         }
     }
+}
+
+fn toggle_equipment(
+    inventory_id: usize,
+    _objects: &mut [Object],
+    game: &mut Game,
+    _tcod: &mut Tcod,
+) -> UseResult {
+    let equipment = match game.inventory[inventory_id].equipment {
+        Some(equipment) => equipment,
+        None => return UseResult::Cancelled,
+    };
+    if equipment.equipped {
+        game.inventory[inventory_id].unequip(&mut game.log);
+    } else {
+        // Unequip old equipment if needed.
+        if let Some(old_equipment) = get_equipment_in_slot(equipment.slot, &game.inventory) {
+            game.inventory[old_equipment].unequip(&mut game.log);
+        }
+        game.inventory[inventory_id].equip(&mut game.log);
+    }
+    UseResult::UsedAndKept
+}
+
+fn get_equipment_in_slot(slot: Slot, inventory: &[Object]) -> Option<usize> {
+    for (inventory_id, item) in inventory.iter().enumerate() {
+        if item.equipment
+            .as_ref()
+            .map_or(false, |e| e.equipped && e.slot == slot)
+        {
+            return Some(inventory_id);
+        }
+    }
+    None
 }

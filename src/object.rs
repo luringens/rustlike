@@ -8,7 +8,7 @@ use rand::{self, Rng};
 
 use std::cmp;
 
-use item::{Item, Equipment};
+use item::{Equipment, Item};
 use ::*;
 
 #[derive(Debug/*, Serialize, Deserialize*/)]
@@ -36,10 +36,10 @@ pub enum PlayerAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Fighter {
-    pub max_hp: i32,
     pub hp: i32,
-    pub defense: i32,
-    pub power: i32,
+    pub base_max_hp: i32,
+    pub base_defense: i32,
+    pub base_power: i32,
     pub on_death: DeathCallback,
     pub xp: i32,
 }
@@ -117,21 +117,21 @@ impl Object {
         None
     }
 
-    pub fn attack(&mut self, target: &mut Object, log: &mut Messages) {
-        let damage = self.fighter.map_or(0, |f| f.power) - target.fighter.map_or(0, |f| f.defense);
+    pub fn attack(&mut self, target: &mut Object, game: &mut Game) {
+        let damage = self.power(game) - target.defense(game);
         if damage > 0 {
-            log.add(
+            game.log.add(
                 format!(
                     "{} attacks {} for {} hit points.",
                     self.name, target.name, damage
                 ),
                 colors::RED,
             );
-            if let Some(xp) = target.take_damage(damage, log) {
+            if let Some(xp) = target.take_damage(damage, &mut game.log) {
                 self.fighter.as_mut().unwrap().xp += xp;
             };
         } else {
-            log.add(
+            game.log.add(
                 format!(
                     "{} attacks {} but it has no effect!",
                     self.name, target.name
@@ -141,12 +141,13 @@ impl Object {
         }
     }
 
-    pub fn heal(&mut self, amount: i32) {
+    pub fn heal(&mut self, amount: i32, game: &Game) {
+        let max_hp = self.max_hp(game);
         if let Some(ref mut fighter) = self.fighter {
             fighter.hp += amount;
-            if fighter.hp > fighter.max_hp {
-                fighter.hp = fighter.max_hp;
-            }
+            if fighter.hp > max_hp {
+                fighter.hp = max_hp;
+            }        
         }
     }
 
@@ -154,17 +155,83 @@ impl Object {
         (((x - self.x).pow(2) + (y - self.y).pow(2)) as f32).sqrt()
     }
 
-    pub fn equip(&mut self, log: Messages) {
+    pub fn equip(&mut self, log: &mut Messages) {
         if self.item.is_none() {
-            log.add(format!("Can't equip {:?} because it's not an Item.", self),
-                colors::RED);
-            return
+            log.add(
+                format!("Can't equip {:?} because it's not an Item.", self),
+                colors::RED,
+            );
+            return;
         }
         if let Some(ref mut equipment) = self.equipment {
             if !equipment.equipped {
                 equipment.equipped = true;
+                log.add(
+                    format!("Equipped {} on {}.", self.name, equipment.slot),
+                    colors::LIGHT_GREEN,
+                );
             }
+        } else {
+            log.add(
+                format!("Can't equip {:?} because it's not an Equipment.", self),
+                colors::RED,
+            );
         }
+    }
+
+    pub fn unequip(&mut self, log: &mut Messages) {
+        if self.item.is_none() {
+            log.add(
+                format!("Can't dequip {:?} because it's not an Item.", self),
+                colors::RED,
+            );
+            return;
+        }
+        if let Some(ref mut equipment) = self.equipment {
+            if equipment.equipped {
+                equipment.equipped = false;
+                log.add(
+                    format!("Dequipped {} from {}.", self.name, equipment.slot),
+                    colors::LIGHT_YELLOW,
+                );
+            }
+        } else {
+            log.add(
+                format!("Can't dequip {:?} because it's not an Equipment.", self),
+                colors::RED,
+            );
+        }
+    }
+
+    pub fn power(&self, game: &Game) -> i32 {
+        let base_power = self.fighter.map_or(0, |f| f.base_power);
+        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.power_bonus);
+        base_power + bonus
+    }
+
+    pub fn defense(&self, game: &Game) -> i32 {
+        let base_defense = self.fighter.map_or(0, |f| f.base_defense);
+        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.defense_bonus);
+        base_defense + bonus
+    }
+
+    fn get_all_equipped(&self, game: &Game) -> Vec<Equipment> {
+        // Hacky...
+        if self.name == "player" {
+            game.inventory
+                .iter()
+                .filter(|item| item.equipment.map_or(false, |e| e.equipped))
+                .map(|item| item.equipment.unwrap())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn max_hp(&self, game: &Game) -> i32 {
+        let base_max_hp = self.fighter.map_or(0, |f| f.base_max_hp);
+        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.max_hp_bonus);
+        base_max_hp + bonus
     }
 }
 
@@ -190,9 +257,8 @@ pub fn player_move_or_attack(
     id: usize,
     dx: i32,
     dy: i32,
-    map: &Map,
     objects: &mut [Object],
-    messages: &mut Messages,
+    game: &mut Game,
 ) {
     let x = objects[PLAYER].x + dx;
     let y = objects[PLAYER].y + dy;
@@ -204,10 +270,10 @@ pub fn player_move_or_attack(
     match target_id {
         Some(target_id) => {
             let (player, monster) = mut_two(PLAYER, target_id, objects);
-            player.attack(monster, messages);
+            player.attack(monster, game);
         }
         None => {
-            move_by(id, dx, dy, map, objects);
+            move_by(id, dx, dy, &mut game.map, objects);
         }
     }
 }
@@ -226,17 +292,16 @@ pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, 
     use self::Ai::*;
     if let Some(ai) = objects[monster_id].ai.take() {
         let new_ai = match ai {
-            Basic => ai_basic(monster_id, &game.map, objects, fov_map, &mut game.log),
+            Basic => ai_basic(monster_id, objects, fov_map, game),
             Confused {
                 previous_ai,
                 num_turns,
             } => ai_confused(
                 monster_id,
-                &game.map,
                 objects,
-                &mut game.log,
                 previous_ai,
                 num_turns,
+                game,
             ),
         };
         objects[monster_id].ai = Some(new_ai);
@@ -245,19 +310,18 @@ pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, 
 
 pub fn ai_basic(
     monster_id: usize,
-    map: &Map,
     objects: &mut [Object],
     fov_map: &FovMap,
-    messages: &mut Messages,
+    game: &mut Game,
 ) -> Ai {
     let (monster_x, monster_y) = objects[monster_id].pos();
     if fov_map.is_in_fov(monster_x, monster_y) {
         if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {
             let (player_x, player_y) = objects[PLAYER].pos();
-            move_towards(monster_id, player_x, player_y, map, objects);
+            move_towards(monster_id, player_x, player_y, &mut game.map, objects);
         } else if objects[PLAYER].fighter.map_or(false, |f| f.hp > 0) {
             let (monster, player) = mut_two(monster_id, PLAYER, objects);
-            monster.attack(player, messages);
+            monster.attack(player, game);
         }
     }
     Ai::Basic
@@ -265,18 +329,17 @@ pub fn ai_basic(
 
 pub fn ai_confused(
     monster_id: usize,
-    map: &Map,
     objects: &mut [Object],
-    log: &mut Messages,
     previous_ai: Box<Ai>,
     num_turns: i32,
+    game: &mut Game,
 ) -> Ai {
     if num_turns >= 0 {
         move_by(
             monster_id,
             rand::thread_rng().gen_range(-1, 2),
             rand::thread_rng().gen_range(-1, 2),
-            map,
+            &mut game.map,
             objects,
         );
         Ai::Confused {
@@ -284,7 +347,7 @@ pub fn ai_confused(
             num_turns: num_turns - 1,
         }
     } else {
-        log.add(
+        game.log.add(
             format!("The {} is no longer confused!", objects[monster_id].name),
             colors::RED,
         );

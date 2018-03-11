@@ -181,10 +181,10 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>, level: u
                 "orc" => {
                     let mut orc = Object::new(x, y, 'o', "orc", colors::DESATURATED_GREEN, true);
                     orc.fighter = Some(Fighter {
-                        max_hp: 20,
                         hp: 20,
-                        defense: 0,
-                        power: 4,
+                        base_max_hp: 20,
+                        base_defense: 0,
+                        base_power: 4,
                         on_death: DeathCallback::Monster,
                         xp: 35,
                     });
@@ -194,10 +194,10 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>, level: u
                 "troll" => {
                     let mut troll = Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true);
                     troll.fighter = Some(Fighter {
-                        max_hp: 30,
                         hp: 16,
-                        defense: 2,
-                        power: 8,
+                        base_max_hp: 30,
+                        base_defense: 2,
+                        base_power: 8,
                         on_death: DeathCallback::Monster,
                         xp: 100,
                     });
@@ -261,6 +261,10 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>, level: u
             ),
             item: Item::Confuse,
         },
+        Weighted {weight: from_dungeon_level(&[Transition{level: 4, value: 5}], level),  
+              item: Item::Sword},
+    Weighted {weight: from_dungeon_level(&[Transition{level: 8, value: 15}], level),  
+              item: Item::Shield},
     ];
     let num_items = rand::thread_rng().gen_range(0, max_items + 1);
 
@@ -305,6 +309,30 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>, level: u
                         false,
                     );
                     object.item = Some(Item::Confuse);
+                    object
+                }
+                Item::Sword => {
+                    let mut object = Object::new(x, y, '/', "sword", colors::SKY, false);
+                    object.item = Some(Item::Sword);
+                    object.equipment = Some(Equipment {
+                        equipped: false,
+                        slot: Slot::RightHand,
+                        power_bonus: 3,
+                        defense_bonus: 0,
+                        max_hp_bonus: 0,
+                    });
+                    object
+                }
+                Item::Shield => {
+                    let mut object = Object::new(x, y, '[', "shield", colors::DARKER_ORANGE, false);
+                    object.item = Some(Item::Shield);
+                    object.equipment = Some(Equipment {
+                        equipped: false,
+                        slot: Slot::LeftHand,
+                        power_bonus: 0,
+                        defense_bonus: 1,
+                        max_hp_bonus: 0,
+                    });
                     object
                 }
             };

@@ -151,10 +151,10 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
     let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
     player.alive = true;
     player.fighter = Some(Fighter {
-        max_hp: 100,
+        base_max_hp: 100,
         hp: 100,
-        defense: 1,
-        power: 4,
+        base_defense: 1,
+        base_power: 2,
         on_death: DeathCallback::Player,
         xp: 0,
     });
@@ -167,6 +167,17 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
         dungeon_level: 1,
         player_level: 1,
     };
+    
+    let mut dagger = Object::new(0, 0, '-', "dagger", colors::SKY, false);
+    dagger.item = Some(Item::Sword);
+    dagger.equipment = Some(Equipment {
+        equipped: true,
+        slot: Slot::LeftHand,
+        max_hp_bonus: 0,
+        defense_bonus: 0,
+        power_bonus: 2,
+    });
+    game.inventory.push(dagger);
 
     initialize_fov(&game.map, tcod);
 
@@ -207,35 +218,35 @@ fn handle_keys(
     let player_alive = objects[PLAYER].alive;
     match (key, player_alive) {
         (Key { code: NumPad8, .. }, true) | (Key { code: Up, .. }, true) => {
-            player_move_or_attack(PLAYER, 0, -1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, 0, -1, objects, game);
             TookTurn
         }
         (Key { code: NumPad2, .. }, true) | (Key { code: Down, .. }, true) => {
-            player_move_or_attack(PLAYER, 0, 1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, 0, 1, objects, game);
             TookTurn
         }
         (Key { code: NumPad4, .. }, true) | (Key { code: Left, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, 0, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, -1, 0, objects, game);
             TookTurn
         }
         (Key { code: NumPad6, .. }, true) | (Key { code: Right, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, 0, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, 1, 0, objects, game);
             TookTurn
         }
         (Key { code: NumPad7, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, -1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, -1, -1, objects, game);
             TookTurn
         }
         (Key { code: NumPad9, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, -1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, 1, -1, objects, game);
             TookTurn
         }
         (Key { code: NumPad3, .. }, true) => {
-            player_move_or_attack(PLAYER, 1, 1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, 1, 1, objects, game);
             TookTurn
         }
         (Key { code: NumPad1, .. }, true) => {
-            player_move_or_attack(PLAYER, -1, 1, &game.map, objects, &mut game.log);
+            player_move_or_attack(PLAYER, -1, 1, objects, game);
             TookTurn
         }
         (Key { code: NumPad5, .. }, true) => TookTurn,
@@ -267,7 +278,7 @@ fn handle_keys(
                 &mut tcod.root,
             );
             if let Some(inventory_index) = inventory_index {
-                drop_item(inventory_index, &mut game.inventory, objects, &mut game.log);
+                drop_item(inventory_index, objects, game);
             }
             DidntTakeTurn
         }
@@ -294,7 +305,7 @@ Experience to level up: {}
 Maximum HP: {}
 Attack: {}
 Defense: {}",
-                    level, fighter.xp, level_up_xp, fighter.max_hp, fighter.power, fighter.defense
+                    level, fighter.xp, level_up_xp, player.max_hp(game), player.power(game), player.defense(game)
                 );
                 msgbox(&msg, CHARACTER_SCREEN_WIDTH, &mut tcod.root);
             }
@@ -321,7 +332,15 @@ fn inventory_menu(inventory: &[Object], header: &str, root: &mut Root) -> Option
     let options = if inventory.len() == 0 {
         vec!["Inventory is empty.".into()]
     } else {
-        inventory.iter().map(|item| item.name.clone()).collect()
+        inventory
+            .iter()
+            .map(|item| match item.equipment {
+                Some(equipment) if equipment.equipped => {
+                    format!("{} (on {}", item.name, equipment.slot)
+                }
+                _ => item.name.clone(),
+            })
+            .collect()
     };
 
     menu(header, &options, renderer::INVENTORY_WIDTH, root)
@@ -345,8 +364,8 @@ fn next_level(game: &mut Game, objects: &mut Vec<Object>, tcod: &mut Tcod) {
         "You take a moment to rest, and recover your strength.",
         colors::VIOLET,
     );
-    let heal_hp = objects[PLAYER].fighter.map_or(0, |f| f.max_hp / 2);
-    objects[PLAYER].heal(heal_hp);
+    let heal_hp = objects[PLAYER].max_hp(game) / 2;
+    objects[PLAYER].heal(heal_hp, game);
 
     game.log.add(
         "After a rare moment of peace, you descend deeper into the heart of the dungeon...",
@@ -376,9 +395,9 @@ fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
             choice = menu(
                 "Level up! Choose a stat to raise:\n",
                 &[
-                    format!("Constitution (+20 HP, from {})", fighter.max_hp),
-                    format!("Strength (+1 attack, from {})", fighter.power),
-                    format!("Agility (+1 defense, from {})", fighter.defense),
+                    format!("Constitution (+20 HP, from {})", fighter.base_max_hp),
+                    format!("Strength (+1 attack, from {})", fighter.base_power),
+                    format!("Agility (+1 defense, from {})", fighter.base_defense),
                 ],
                 LEVEL_SCREEN_WIDTH,
                 &mut tcod.root,
@@ -387,14 +406,14 @@ fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
         fighter.xp -= level_up_xp;
         match choice.unwrap() {
             0 => {
-                fighter.max_hp += 20;
+                fighter.base_max_hp += 20;
                 fighter.hp += 20;
-            }
+            } 
             1 => {
-                fighter.power += 1;
+                fighter.base_power += 1;
             }
             2 => {
-                fighter.defense += 1;
+                fighter.base_defense += 1;
             }
             _ => unreachable!(),
         }
