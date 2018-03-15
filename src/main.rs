@@ -11,16 +11,17 @@ mod map;
 mod object;
 mod renderer;
 mod item;
+mod fov;
 
 use map::*;
 use object::*;
 use item::*;
 use renderer::{menu, MSG_HEIGHT};
 use map::{Map, MAP_HEIGHT, MAP_WIDTH};
+use fov::Fov;
 
 use tcod::console::*;
 use tcod::colors::{self, Color};
-use tcod::map::Map as FovMap;
 use tcod::input::{self, Event, Key, Mouse};
 
 const SCREEN_WIDTH: i32 = 80;
@@ -39,7 +40,7 @@ pub struct Tcod {
     root: Root,
     con: Offscreen,
     panel: Offscreen,
-    fov: FovMap,
+    fov: Fov,
     mouse: Mouse,
 }
 
@@ -65,7 +66,7 @@ fn main() {
         root: root,
         con: Offscreen::new(SCREEN_WIDTH, SCREEN_HEIGHT),
         panel: Offscreen::new(SCREEN_WIDTH, renderer::PANEL_HEIGHT),
-        fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
+        fov: Fov::new(),
         mouse: Default::default(),
     };
 
@@ -190,16 +191,7 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
 }
 
 fn initialize_fov(map: &Map, tcod: &mut Tcod) {
-    for y in 0..MAP_HEIGHT {
-        for x in 0..MAP_WIDTH {
-            tcod.fov.set(
-                x,
-                y,
-                !map[x as usize][y as usize].block_sight,
-                !map[x as usize][y as usize].blocked,
-            );
-        }
-    }
+    tcod.fov = Fov::from_map(map);
     tcod.con.clear(); // Clear out previous FOV.
 }
 

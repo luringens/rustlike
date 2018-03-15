@@ -3,7 +3,6 @@ use map::Map;
 
 use tcod::console::*;
 use tcod::colors::{self, Color};
-use tcod::map::Map as FovMap;
 use rand::{self, Rng};
 
 use std::cmp;
@@ -288,7 +287,7 @@ pub fn move_towards(id: usize, target_x: i32, target_y: i32, map: &Map, objects:
     move_by(id, dx, dy, map, objects);
 }
 
-pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, fov_map: &FovMap) {
+pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, fov_map: &Fov) {
     use self::Ai::*;
     if let Some(ai) = objects[monster_id].ai.take() {
         let new_ai = match ai {
@@ -311,7 +310,7 @@ pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, 
 pub fn ai_basic(
     monster_id: usize,
     objects: &mut [Object],
-    fov_map: &FovMap,
+    fov_map: &Fov,
     game: &mut Game,
 ) -> Ai {
     let (monster_x, monster_y) = objects[monster_id].pos();

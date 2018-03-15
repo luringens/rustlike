@@ -1,6 +1,5 @@
 use tcod::console::*;
 use tcod::colors::{self, Color};
-use tcod::map::{FovAlgorithm, Map as FovMap};
 use tcod::input::Mouse;
 
 use map::*;
@@ -24,8 +23,6 @@ const COLOR_LIGHT_GROUND: Color = Color {
     b: 50,
 };
 
-const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
-const FOV_LIGHT_WALLS: bool = true;
 const TORCH_RADIUS: i32 = 10;
 
 pub const PANEL_HEIGHT: i32 = 7;
@@ -42,8 +39,7 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
     // TODO: Make render not take mutable references.
     if fov_recompute {
         let player = &objects[PLAYER];
-        tcod.fov
-            .compute_fov(player.x, player.y, TORCH_RADIUS, FOV_LIGHT_WALLS, FOV_ALGO);
+        tcod.fov.recompute(player.x, player.y, TORCH_RADIUS);
 
         for y in 0..MAP_HEIGHT {
             for x in 0..MAP_WIDTH {
@@ -184,7 +180,7 @@ fn render_bar(
     );
 }
 
-fn get_names_under_mouse(mouse: Mouse, objects: &[Object], fov: &FovMap) -> String {
+fn get_names_under_mouse(mouse: Mouse, objects: &[Object], fov: &Fov) -> String {
     let (x, y) = (mouse.cx as i32, mouse.cy as i32);
     objects
         .iter()
