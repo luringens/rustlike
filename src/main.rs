@@ -168,7 +168,7 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
         dungeon_level: 1,
         player_level: 1,
     };
-    
+
     let mut dagger = Object::new(0, 0, '-', "dagger", colors::SKY, false);
     dagger.item = Some(Item::Sword);
     dagger.equipment = Some(Equipment {
@@ -297,7 +297,12 @@ Experience to level up: {}
 Maximum HP: {}
 Attack: {}
 Defense: {}",
-                    level, fighter.xp, level_up_xp, player.max_hp(game), player.power(game), player.defense(game)
+                    level,
+                    fighter.xp,
+                    level_up_xp,
+                    player.max_hp(game),
+                    player.power(game),
+                    player.defense(game)
                 );
                 msgbox(&msg, CHARACTER_SCREEN_WIDTH, &mut tcod.root);
             }
@@ -400,7 +405,7 @@ fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
             0 => {
                 fighter.base_max_hp += 20;
                 fighter.hp += 20;
-            } 
+            }
             1 => {
                 fighter.base_power += 1;
             }

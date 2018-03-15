@@ -146,7 +146,7 @@ impl Object {
             fighter.hp += amount;
             if fighter.hp > max_hp {
                 fighter.hp = max_hp;
-            }        
+            }
         }
     }
 
@@ -204,13 +204,17 @@ impl Object {
 
     pub fn power(&self, game: &Game) -> i32 {
         let base_power = self.fighter.map_or(0, |f| f.base_power);
-        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.power_bonus);
+        let bonus = self.get_all_equipped(game)
+            .iter()
+            .fold(0, |sum, e| sum + e.power_bonus);
         base_power + bonus
     }
 
     pub fn defense(&self, game: &Game) -> i32 {
         let base_defense = self.fighter.map_or(0, |f| f.base_defense);
-        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.defense_bonus);
+        let bonus = self.get_all_equipped(game)
+            .iter()
+            .fold(0, |sum, e| sum + e.defense_bonus);
         base_defense + bonus
     }
 
@@ -229,7 +233,9 @@ impl Object {
 
     pub fn max_hp(&self, game: &Game) -> i32 {
         let base_max_hp = self.fighter.map_or(0, |f| f.base_max_hp);
-        let bonus = self.get_all_equipped(game).iter().fold(0, |sum, e| sum + e.max_hp_bonus);
+        let bonus = self.get_all_equipped(game)
+            .iter()
+            .fold(0, |sum, e| sum + e.max_hp_bonus);
         base_max_hp + bonus
     }
 }
@@ -252,13 +258,7 @@ pub fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
     }
 }
 
-pub fn player_move_or_attack(
-    id: usize,
-    dx: i32,
-    dy: i32,
-    objects: &mut [Object],
-    game: &mut Game,
-) {
+pub fn player_move_or_attack(id: usize, dx: i32, dy: i32, objects: &mut [Object], game: &mut Game) {
     let x = objects[PLAYER].x + dx;
     let y = objects[PLAYER].y + dy;
 
@@ -295,24 +295,13 @@ pub fn ai_take_turn(monster_id: usize, objects: &mut [Object], game: &mut Game, 
             Confused {
                 previous_ai,
                 num_turns,
-            } => ai_confused(
-                monster_id,
-                objects,
-                previous_ai,
-                num_turns,
-                game,
-            ),
+            } => ai_confused(monster_id, objects, previous_ai, num_turns, game),
         };
         objects[monster_id].ai = Some(new_ai);
     }
 }
 
-pub fn ai_basic(
-    monster_id: usize,
-    objects: &mut [Object],
-    fov_map: &Fov,
-    game: &mut Game,
-) -> Ai {
+pub fn ai_basic(monster_id: usize, objects: &mut [Object], fov_map: &Fov, game: &mut Game) -> Ai {
     let (monster_x, monster_y) = objects[monster_id].pos();
     if fov_map.is_in_fov(monster_x, monster_y) {
         if objects[monster_id].distance_to(&objects[PLAYER]) >= 2.0 {

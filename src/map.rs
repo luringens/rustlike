@@ -261,10 +261,22 @@ pub fn place_objects(room: &Rect, map: &Map, objects: &mut Vec<Object>, level: u
             ),
             item: Item::Confuse,
         },
-        Weighted {weight: from_dungeon_level(&[Transition{level: 4, value: 5}], level),  
-              item: Item::Sword},
-    Weighted {weight: from_dungeon_level(&[Transition{level: 8, value: 15}], level),  
-              item: Item::Shield},
+        Weighted {
+            weight: from_dungeon_level(&[Transition { level: 4, value: 5 }], level),
+            item: Item::Sword,
+        },
+        Weighted {
+            weight: from_dungeon_level(
+                &[
+                    Transition {
+                        level: 8,
+                        value: 15,
+                    },
+                ],
+                level,
+            ),
+            item: Item::Shield,
+        },
     ];
     let num_items = rand::thread_rng().gen_range(0, max_items + 1);
 

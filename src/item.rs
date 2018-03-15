@@ -82,17 +82,14 @@ pub fn pick_item_up(object_id: usize, objects: &mut Vec<Object>, game: &mut Game
     }
 }
 
-pub fn drop_item(
-    inventory_id: usize,
-    objects: &mut Vec<Object>,
-    game: &mut Game,
-) {
+pub fn drop_item(inventory_id: usize, objects: &mut Vec<Object>, game: &mut Game) {
     let mut item = game.inventory.remove(inventory_id);
     if item.equipment.is_some() {
         item.unequip(&mut game.log);
     }
     item.set_pos(objects[PLAYER].x, objects[PLAYER].y);
-    game.log.add(format!("You dropped a {}.", item.name), colors::YELLOW);
+    game.log
+        .add(format!("You dropped a {}.", item.name), colors::YELLOW);
     objects.push(item);
 }
 
