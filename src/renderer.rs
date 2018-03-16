@@ -1,27 +1,11 @@
-use tcod::console::*;
-use tcod::colors::{self, Color};
-use tcod::input::Mouse;
-
 use map::*;
 use object::*;
 use ::*;
 
-const COLOR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
-const COLOR_LIGHT_WALL: Color = Color {
-    r: 130,
-    g: 110,
-    b: 50,
-};
-const COLOR_DARK_GROUND: Color = Color {
-    r: 50,
-    g: 50,
-    b: 150,
-};
-const COLOR_LIGHT_GROUND: Color = Color {
-    r: 200,
-    g: 180,
-    b: 50,
-};
+const COLOR_DARK_WALL: [f32; 4] = [0.0,0.0, 0.39, 1.0];
+const COLOR_LIGHT_WALL: [f32; 4] = [0.51, 0.43, 0.2, 1.0];
+const COLOR_DARK_GROUND: [f32; 4] = [0.2, 0.2, 0.59, 1.0];
+const COLOR_LIGHT_GROUND: [f32; 4] = [0.78, 0.7, 0.2, 1.0];
 
 const TORCH_RADIUS: i32 = 10;
 
@@ -35,15 +19,15 @@ const MSG_X: i32 = BAR_WIDTH + 2;
 
 pub const INVENTORY_WIDTH: i32 = 50;
 
-pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_recompute: bool) {
+pub fn render_all(ui: &mut Ui, objects: &[Object], game: &mut Game, fov_recompute: bool) {
     // TODO: Make render not take mutable references.
     if fov_recompute {
         let player = &objects[PLAYER];
-        tcod.fov.recompute(player.x, player.y, TORCH_RADIUS);
+        ui.fov.recompute(player.x, player.y, TORCH_RADIUS);
 
         for y in 0..MAP_HEIGHT {
             for x in 0..MAP_WIDTH {
-                let visible = tcod.fov.is_in_fov(x, y);
+                let visible = ui.fov.is_in_fov(x, y);
                 let wall = game.map[x as usize][y as usize].block_sight;
                 let color = match (visible, wall) {
                     (false, true) => COLOR_DARK_WALL,
@@ -57,7 +41,7 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
                     *explored = true;
                 }
                 if *explored {
-                    tcod.con
+                    ui.con
                         .set_char_background(x, y, color, BackgroundFlag::Set);
                 }
             }
@@ -67,45 +51,45 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
     let mut to_draw: Vec<_> = objects
         .iter()
         .filter(|o| {
-            tcod.fov.is_in_fov(o.x, o.y)
+            ui.fov.is_in_fov(o.x, o.y)
                 || (o.always_visible && game.map[o.x as usize][o.y as usize].explored)
         })
         .collect();
     to_draw.sort_by(|o1, o2| o1.blocks.cmp(&o2.blocks));
     for object in &to_draw {
-        object.draw(&mut tcod.con);
+        object.draw(&mut ui.con);
     }
 
     blit(
-        &tcod.con,
+        &ui.con,
         (0, 0),
         (MAP_WIDTH, MAP_HEIGHT),
-        &mut tcod.root,
+        &mut ui.root,
         (0, 0),
         1.0,
         1.0,
     );
 
-    tcod.panel.set_default_background(colors::BLACK);
-    tcod.panel.clear();
+    ui.panel.set_default_background(colors::BLACK);
+    ui.panel.clear();
 
     // print the game messages, one line at a time
     let mut y = MSG_HEIGHT as i32;
     for &(ref msg, color) in game.log.iter().rev() {
-        let msg_height = tcod.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+        let msg_height = ui.panel.get_height_rect(MSG_X, y, MSG_WIDTH, 0, msg);
         y -= msg_height;
         if y < 0 {
             break;
         }
-        tcod.panel.set_default_foreground(color);
-        tcod.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+        ui.panel.set_default_foreground(color);
+        ui.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
     }
 
     // show the player's stats
     let hp = objects[PLAYER].fighter.map_or(0, |f| f.hp);
     let max_hp = objects[PLAYER].max_hp(game);
     render_bar(
-        &mut tcod.panel,
+        &mut ui.panel,
         1,
         1,
         BAR_WIDTH,
@@ -116,7 +100,7 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
         colors::DARKER_RED,
     );
 
-    tcod.panel.print_ex(
+    ui.panel.print_ex(
         1,
         3,
         BackgroundFlag::None,
@@ -125,20 +109,20 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
     );
 
     // Display names of objects under the mouse
-    tcod.panel.set_default_foreground(colors::LIGHT_GREY);
-    tcod.panel.print_ex(
+    ui.panel.set_default_foreground(colors::LIGHT_GREY);
+    ui.panel.print_ex(
         1,
         0,
         BackgroundFlag::None,
         TextAlignment::Left,
-        get_names_under_mouse(tcod.mouse, objects, &tcod.fov),
+        get_names_under_mouse(ui.mouse, objects, &ui.fov),
     );
 
     blit(
-        &tcod.panel,
+        &ui.panel,
         (0, 0),
         (SCREEN_WIDTH, PANEL_HEIGHT),
-        &mut tcod.root,
+        &mut ui.root,
         (0, PANEL_Y),
         1.0,
         1.0,
@@ -146,15 +130,15 @@ pub fn render_all(tcod: &mut Tcod, objects: &[Object], game: &mut Game, fov_reco
 }
 
 fn render_bar(
-    panel: &mut Offscreen,
+    panel: &mut Console,
     x: i32,
     y: i32,
     total_width: i32,
     name: &str,
     value: i32,
     maximum: i32,
-    bar_color: Color,
-    back_color: Color,
+    bar_color: [f32; 4],
+    back_color: [f32; 4],
 ) {
     // render a bar (HP, experience, etc). First calculate the width of the bar
     let bar_width = (value as f32 / maximum as f32 * total_width as f32) as i32;
@@ -194,7 +178,7 @@ pub fn menu<T: AsRef<str>>(
     header: &str,
     options: &[T],
     width: i32,
-    root: &mut Root,
+    root: &mut Console,
 ) -> Option<usize> {
     assert!(
         options.len() <= 26,
@@ -209,7 +193,7 @@ pub fn menu<T: AsRef<str>>(
     };
     let height = options.len() as i32 + header_height;
 
-    let mut window = Offscreen::new(width, height);
+    let mut window = Console::new(width, height);
     window.set_default_foreground(colors::WHITE);
     window.print_rect_ex(
         0,

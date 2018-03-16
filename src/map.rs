@@ -1,9 +1,8 @@
-extern crate rand;
-
 use object::*;
 use item::*;
-use tcod::colors;
+
 use std::cmp;
+use rand;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Weighted, WeightedChoice};
 

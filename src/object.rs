@@ -1,8 +1,5 @@
 use map::*;
 use map::Map;
-
-use tcod::console::*;
-use tcod::colors::{self, Color};
 use rand::{self, Rng};
 
 use std::cmp;
@@ -15,7 +12,7 @@ pub struct Object {
     pub x: i32,
     pub y: i32,
     pub char: char,
-    pub color: Color,
+    pub color: [f32; 4],
     pub name: String,
     pub blocks: bool,
     pub alive: bool,
@@ -59,7 +56,7 @@ pub enum Ai {
 }
 
 impl Object {
-    pub fn new(x: i32, y: i32, char: char, name: &str, color: Color, blocks: bool) -> Self {
+    pub fn new(x: i32, y: i32, char: char, name: &str, color: [f32; 4], blocks: bool) -> Self {
         Object {
             x: x,
             y: y,

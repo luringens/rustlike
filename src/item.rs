@@ -1,6 +1,3 @@
-use tcod::colors;
-use tcod::input::{self, Event};
-
 use object::*;
 use renderer::render_all;
 use ::*;
@@ -93,7 +90,7 @@ pub fn drop_item(inventory_id: usize, objects: &mut Vec<Object>, game: &mut Game
     objects.push(item);
 }
 
-pub fn use_item(inventory_id: usize, objects: &mut [Object], tcod: &mut Tcod, game: &mut Game) {
+pub fn use_item(inventory_id: usize, objects: &mut [Object], ui: &mut Ui, game: &mut Game) {
     use self::Item::*;
     if let Some(item) = game.inventory[inventory_id].item {
         let on_use = match item {
@@ -104,7 +101,7 @@ pub fn use_item(inventory_id: usize, objects: &mut [Object], tcod: &mut Tcod, ga
             Sword => toggle_equipment,
             Shield => toggle_equipment,
         };
-        match on_use(inventory_id, objects, game, tcod) {
+        match on_use(inventory_id, objects, game, ui) {
             UseResult::UsedUp => {
                 game.inventory.remove(inventory_id);
             }
@@ -123,7 +120,7 @@ fn cast_heal(
     _inventory_id: usize,
     objects: &mut [Object],
     game: &mut Game,
-    _tcod: &mut Tcod,
+    _ui: &mut Ui,
 ) -> UseResult {
     let player = &mut objects[PLAYER];
     if let Some(fighter) = player.fighter {
@@ -143,9 +140,9 @@ fn cast_lightning(
     _inventory_id: usize,
     objects: &mut [Object],
     game: &mut Game,
-    tcod: &mut Tcod,
+    ui: &mut Ui,
 ) -> UseResult {
-    let monster_id = closest_monster(LIGHTNING_RANGE, objects, tcod);
+    let monster_id = closest_monster(LIGHTNING_RANGE, objects, ui);
     if let Some(monster_id) = monster_id {
         game.log.add(
             format!(
@@ -170,13 +167,13 @@ fn cast_confuse(
     _inventory_id: usize,
     objects: &mut [Object],
     game: &mut Game,
-    tcod: &mut Tcod,
+    ui: &mut Ui,
 ) -> UseResult {
     game.log.add(
         "Left-click an enemy to confuse it, or right-click to cancel.",
         colors::LIGHT_CYAN,
     );
-    let monster_id = target_monster(tcod, objects, game, Some(CONFUSE_RANGE as f32));
+    let monster_id = target_monster(ui, objects, game, Some(CONFUSE_RANGE as f32));
     if let Some(monster_id) = monster_id {
         let old_ai = objects[monster_id].ai.take().unwrap_or(Ai::Basic);
         objects[monster_id].ai = Some(Ai::Confused {
@@ -202,13 +199,13 @@ fn cast_fireball(
     _inventory_id: usize,
     objects: &mut [Object],
     game: &mut Game,
-    tcod: &mut Tcod,
+    ui: &mut Ui,
 ) -> UseResult {
     game.log.add(
         "Left-click a target tile for the fireball, or right-click to cancel.",
         colors::LIGHT_CYAN,
     );
-    let (x, y) = match target_tile(tcod, objects, game, None) {
+    let (x, y) = match target_tile(ui, objects, game, None) {
         Some(tile_pos) => tile_pos,
         None => return UseResult::Cancelled,
     };
@@ -243,12 +240,12 @@ fn cast_fireball(
     UseResult::UsedUp
 }
 
-fn closest_monster(max_range: i32, objects: &mut [Object], tcod: &Tcod) -> Option<usize> {
+fn closest_monster(max_range: i32, objects: &mut [Object], ui: &Ui) -> Option<usize> {
     let mut closest_enemy = None;
     let mut closest_dist = (max_range + 1) as f32;
     for (id, object) in objects.iter().enumerate() {
         if (id != PLAYER) && object.fighter.is_some() && object.ai.is_some()
-            && tcod.fov.is_in_fov(object.x, object.y)
+            && ui.fov.is_in_fov(object.x, object.y)
         {
             let dist = objects[PLAYER].distance_to(object);
             if dist < closest_dist {
@@ -261,45 +258,45 @@ fn closest_monster(max_range: i32, objects: &mut [Object], tcod: &Tcod) -> Optio
 }
 
 fn target_tile(
-    tcod: &mut Tcod,
+    ui: &mut Ui,
     objects: &[Object],
     game: &mut Game,
     max_range: Option<f32>,
 ) -> Option<(i32, i32)> {
-    use tcod::input::KeyCode::Escape;
+    use ui::input::KeyCode::Escape;
     loop {
-        tcod.root.flush();
+        ui.root.flush();
         let event = input::check_for_event(input::KEY_PRESS | input::MOUSE).map(|e| e.1);
         let mut key = None;
         match event {
-            Some(Event::Mouse(m)) => tcod.mouse = m,
+            Some(Event::Mouse(m)) => ui.mouse = m,
             Some(Event::Key(k)) => key = Some(k),
             None => {}
         }
-        render_all(tcod, objects, game, false);
-        let (x, y) = (tcod.mouse.cx as i32, tcod.mouse.cy as i32);
+        render_all(ui, objects, game, false);
+        let (x, y) = (ui.mouse.cx as i32, ui.mouse.cy as i32);
 
-        let in_fov = (x < MAP_WIDTH) && (y < MAP_HEIGHT) && tcod.fov.is_in_fov(x, y);
+        let in_fov = (x < MAP_WIDTH) && (y < MAP_HEIGHT) && ui.fov.is_in_fov(x, y);
         let in_range = max_range.map_or(true, |range| objects[PLAYER].distance(x, y) <= range);
-        if tcod.mouse.lbutton_pressed && in_fov && in_range {
+        if ui.mouse.lbutton_pressed && in_fov && in_range {
             return Some((x, y));
         }
 
         let escape = key.map_or(false, |k| k.code == Escape);
-        if tcod.mouse.rbutton_pressed || escape {
+        if ui.mouse.rbutton_pressed || escape {
             return None;
         }
     }
 }
 
 fn target_monster(
-    tcod: &mut Tcod,
+    ui: &mut Ui,
     objects: &[Object],
     game: &mut Game,
     max_range: Option<f32>,
 ) -> Option<usize> {
     loop {
-        match target_tile(tcod, objects, game, max_range) {
+        match target_tile(ui, objects, game, max_range) {
             Some((x, y)) => for (id, obj) in objects.iter().enumerate() {
                 if obj.pos() == (x, y) && obj.fighter.is_some() && id != PLAYER {
                     return Some(id);
@@ -314,7 +311,7 @@ fn toggle_equipment(
     inventory_id: usize,
     _objects: &mut [Object],
     game: &mut Game,
-    _tcod: &mut Tcod,
+    _ui: &mut Ui,
 ) -> UseResult {
     let equipment = match game.inventory[inventory_id].equipment {
         Some(equipment) => equipment,

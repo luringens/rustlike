@@ -5,13 +5,17 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate tcod;
+extern crate glutin_window;
+extern crate graphics;
+extern crate opengl_graphics;
+extern crate piston;
 
 mod map;
 mod object;
 mod renderer;
 mod item;
 mod fov;
+mod console;
 
 use map::*;
 use object::*;
@@ -19,10 +23,8 @@ use item::*;
 use renderer::{menu, MSG_HEIGHT};
 use map::{Map, MAP_HEIGHT, MAP_WIDTH};
 use fov::Fov;
-
-use tcod::console::*;
-use tcod::colors::{self, Color};
-use tcod::input::{self, Event, Key, Mouse};
+use console::Console;
+use piston::input::*;
 
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
@@ -33,15 +35,14 @@ const LEVEL_UP_FACTOR: i32 = 150;
 const LEVEL_SCREEN_WIDTH: i32 = 40;
 const CHARACTER_SCREEN_WIDTH: i32 = 30;
 
-type Messages = Vec<(String, Color)>;
+type Messages = Vec<(String, [f32; 4])>;
 
 //#[derive(Serialize, Deserialize)]
-pub struct Tcod {
-    root: Root,
-    con: Offscreen,
-    panel: Offscreen,
+pub struct Ui {
+    root: Console,
+    con: Console,
+    panel: Console,
     fov: Fov,
-    mouse: Mouse,
 }
 
 //#[derive(Serialize, Deserialize)]
@@ -54,54 +55,44 @@ pub struct Game {
 }
 
 fn main() {
-    let root = Root::initializer()
-        .font("arial10x10.png", FontLayout::Tcod)
+    let root = Console::initializer()
+        .font("arial10x10.png", FontLayout::Ui)
         .font_type(FontType::Greyscale)
         .size(SCREEN_WIDTH, SCREEN_HEIGHT)
-        .title("Rust/libtcod tutorial")
+        .title("Rust/libui tutorial")
         .init();
-    tcod::system::set_fps(LIMIT_FPS);
+    ui::system::set_fps(LIMIT_FPS);
 
-    let mut tcod = Tcod {
-        root: root,
-        con: Offscreen::new(SCREEN_WIDTH, SCREEN_HEIGHT),
-        panel: Offscreen::new(SCREEN_WIDTH, renderer::PANEL_HEIGHT),
+    let mut ui = Ui {
+        root: Console::new(SCREEN_WIDTH, SCREEN_HEIGHT),
+        con: Console::new(SCREEN_WIDTH, SCREEN_HEIGHT),
+        panel: Console::new(SCREEN_WIDTH, renderer::PANEL_HEIGHT),
         fov: Fov::new(),
-        mouse: Default::default(),
     };
 
-    main_menu(&mut tcod);
+    main_menu(&mut ui);
 }
 
-fn main_menu(tcod: &mut Tcod) {
-    let img = tcod::image::Image::from_file("menu_background.png")
-        .ok()
-        .expect("Backgrounds image not found");
-    while !tcod.root.window_closed() {
-        tcod::image::blit_2x(&img, (0, 0), (-1, -1), &mut tcod.root, (0, 0));
-
-        tcod.root.set_default_foreground(colors::LIGHT_YELLOW);
-        tcod.root.print_ex(
+fn main_menu(ui: &mut Ui) {
+    while !ui.root.window_closed() {
+        ui.root.set_default_foreground(colors::LIGHT_YELLOW);
+        ui.root.print_centered(
             SCREEN_WIDTH / 2,
             SCREEN_HEIGHT / 2 - 4,
-            BackgroundFlag::None,
-            TextAlignment::Center,
             "TOMBS OF THE ANCIENT KINGS",
         );
-        tcod.root.print_ex(
+        ui.root.print_centered(
             SCREEN_WIDTH / 2,
             SCREEN_HEIGHT - 2,
-            BackgroundFlag::None,
-            TextAlignment::Center,
             "Luringen",
         );
 
         let choices = &["Play a new game", "Continue last game", "Quit"];
-        let choice = menu("", choices, 24, &mut tcod.root);
+        let choice = menu("", choices, 24, &mut ui.root);
         match choice {
             Some(0) => {
-                let (mut objects, mut game) = new_game(tcod);
-                play_game(&mut objects, &mut game, tcod);
+                let (mut objects, mut game) = new_game(ui);
+                play_game(&mut objects, &mut game, ui);
             }
             Some(2) => break,
             _ => {}
@@ -109,31 +100,31 @@ fn main_menu(tcod: &mut Tcod) {
     }
 }
 
-fn play_game(objects: &mut Vec<Object>, game: &mut Game, tcod: &mut Tcod) {
+fn play_game(objects: &mut Vec<Object>, game: &mut Game, ui: &mut Ui) {
     let mut previous_player_position = (-1, -1);
     let mut key = Default::default();
 
     // Main loop.
-    while !tcod.root.window_closed() {
+    while !ui.root.window_closed() {
         match input::check_for_event(input::MOUSE | input::KEY_PRESS) {
-            Some((_, Event::Mouse(m))) => tcod.mouse = m,
+            Some((_, Event::Mouse(m))) => ui.mouse = m,
             Some((_, Event::Key(k))) => key = k,
             _ => key = Default::default(),
         }
 
         let fov_recompute = previous_player_position != (objects[PLAYER].x, objects[PLAYER].y);
-        renderer::render_all(tcod, &objects, game, fov_recompute);
+        renderer::render_all(ui, &objects, game, fov_recompute);
 
-        tcod.root.flush();
+        ui.root.flush();
 
-        level_up(objects, game, tcod);
+        level_up(objects, game, ui);
 
         for object in objects.iter_mut() {
-            object.clear(&mut tcod.con);
+            object.clear(&mut ui.con);
         }
 
         previous_player_position = (objects[PLAYER].x, objects[PLAYER].y);
-        let player_action = handle_keys(key, tcod, objects, game);
+        let player_action = handle_keys(key, ui, objects, game);
         if player_action == PlayerAction::Exit {
             break;
         }
@@ -141,14 +132,14 @@ fn play_game(objects: &mut Vec<Object>, game: &mut Game, tcod: &mut Tcod) {
         if objects[PLAYER].alive && player_action != PlayerAction::DidntTakeTurn {
             for id in 0..objects.len() {
                 if objects[id].ai.is_some() {
-                    ai_take_turn(id, objects, game, &tcod.fov);
+                    ai_take_turn(id, objects, game, &ui.fov);
                 }
             }
         }
     }
 }
 
-fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
+fn new_game(ui: &mut Ui) -> (Vec<Object>, Game) {
     let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
     player.alive = true;
     player.fighter = Some(Fighter {
@@ -180,7 +171,7 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
     });
     game.inventory.push(dagger);
 
-    initialize_fov(&game.map, tcod);
+    initialize_fov(&game.map, ui);
 
     game.log.add(
         "Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.",
@@ -190,60 +181,59 @@ fn new_game(tcod: &mut Tcod) -> (Vec<Object>, Game) {
     (objects, game)
 }
 
-fn initialize_fov(map: &Map, tcod: &mut Tcod) {
-    tcod.fov = Fov::from_map(map);
-    tcod.con.clear(); // Clear out previous FOV.
+fn initialize_fov(map: &Map, ui: &mut Ui) {
+    ui.fov = Fov::from_map(map);
+    ui.con.clear(); // Clear out previous FOV.
 }
 
 /// Handles keyboard input and returns whether or not
 /// the application should exit.
 fn handle_keys(
     key: Key,
-    tcod: &mut Tcod,
+    ui: &mut Ui,
     objects: &mut Vec<Object>,
     game: &mut Game,
+    btn: &Button,
 ) -> PlayerAction {
-    use tcod::input::Key;
-    use tcod::input::KeyCode::*;
     use PlayerAction::*;
 
     let player_alive = objects[PLAYER].alive;
-    match (key, player_alive) {
-        (Key { code: NumPad8, .. }, true) | (Key { code: Up, .. }, true) => {
+    match (btn, player_alive) {
+        (&Button::Keyboard(Key::NumPad8), true) | (&Button::Keyboard(Key::Up), true) => {
             player_move_or_attack(PLAYER, 0, -1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad2, .. }, true) | (Key { code: Down, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad2), true) | (&Button::Keyboard(Key::Down), true) => {
             player_move_or_attack(PLAYER, 0, 1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad4, .. }, true) | (Key { code: Left, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad4), true) | (&Button::Keyboard(Key::Left), true) => {
             player_move_or_attack(PLAYER, -1, 0, objects, game);
             TookTurn
         }
-        (Key { code: NumPad6, .. }, true) | (Key { code: Right, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad6), true) | (&Button::Keyboard(Key::Right), true) => {
             player_move_or_attack(PLAYER, 1, 0, objects, game);
             TookTurn
         }
-        (Key { code: NumPad7, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad7), true) => {
             player_move_or_attack(PLAYER, -1, -1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad9, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad9), true) => {
             player_move_or_attack(PLAYER, 1, -1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad3, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad3), true) => {
             player_move_or_attack(PLAYER, 1, 1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad1, .. }, true) => {
+        (&Button::Keyboard(Key::NumPad1), true) => {
             player_move_or_attack(PLAYER, -1, 1, objects, game);
             TookTurn
         }
-        (Key { code: NumPad5, .. }, true) => TookTurn,
-        (Key { code: End, .. }, true) => TookTurn,
-        (Key { printable: 'g', .. }, true) => {
+        (&Button::Keyboard(Key::NumPad5), true) => TookTurn,
+        (&Button::Keyboard(Key::End), true) => TookTurn,
+        (&Button::Keyboard(Key::G), true) => {
             let item_id = objects
                 .iter()
                 .position(|object| object.pos() == objects[PLAYER].pos() && object.item.is_some());
@@ -252,38 +242,38 @@ fn handle_keys(
             }
             DidntTakeTurn
         }
-        (Key { printable: 'i', .. }, true) => {
+        (&Button::Keyboard(Key::I), true) => {
             let inventory_index = inventory_menu(
                 &mut game.inventory,
                 "Press the key next to an item to use it, or any other to cancel.\n",
-                &mut tcod.root,
+                &mut ui.root,
             );
             if let Some(inventory_index) = inventory_index {
-                use_item(inventory_index, objects, tcod, game);
+                use_item(inventory_index, objects, ui, game);
             }
             DidntTakeTurn
         }
-        (Key { printable: 'd', .. }, true) => {
+        (&Button::Keyboard(Key::D), true) => {
             let inventory_index = inventory_menu(
                 &mut game.inventory,
                 "Press the key next to an item to drop it, or any other to cancel.\n",
-                &mut tcod.root,
+                &mut ui.root,
             );
             if let Some(inventory_index) = inventory_index {
                 drop_item(inventory_index, objects, game);
             }
             DidntTakeTurn
         }
-        (Key { printable: '<', .. }, true) => {
+        (&Button::Keyboard(Key::Less), true) => {
             let player_on_stairs = objects
                 .iter()
                 .any(|object| object.pos() == objects[PLAYER].pos() && object.name == "stairs");
             if player_on_stairs {
-                next_level(game, objects, tcod);
+                next_level(game, objects, ui);
             }
             DidntTakeTurn
         }
-        (Key { printable: 'c', .. }, true) => {
+        (&Button::Keyboard(Key::C), true) => {
             let player = &objects[PLAYER];
             let level = game.player_level;
             let level_up_xp = LEVEL_UP_BASE + level * LEVEL_UP_FACTOR;
@@ -304,7 +294,7 @@ Defense: {}",
                     player.power(game),
                     player.defense(game)
                 );
-                msgbox(&msg, CHARACTER_SCREEN_WIDTH, &mut tcod.root);
+                msgbox(&msg, CHARACTER_SCREEN_WIDTH, &mut ui.root);
             }
             DidntTakeTurn
         }
@@ -316,8 +306,8 @@ Defense: {}",
             },
             _,
         ) => {
-            let fullscreen = tcod.root.is_fullscreen();
-            tcod.root.set_fullscreen(!fullscreen);
+            let fullscreen = ui.root.is_fullscreen();
+            ui.root.set_fullscreen(!fullscreen);
             DidntTakeTurn
         }
         (Key { code: Escape, .. }, _) => Exit,
@@ -325,7 +315,7 @@ Defense: {}",
     }
 }
 
-fn inventory_menu(inventory: &[Object], header: &str, root: &mut Root) -> Option<usize> {
+fn inventory_menu(inventory: &[Object], header: &str, root: &mut Console) -> Option<usize> {
     let options = if inventory.len() == 0 {
         vec!["Inventory is empty.".into()]
     } else {
@@ -344,11 +334,11 @@ fn inventory_menu(inventory: &[Object], header: &str, root: &mut Root) -> Option
 }
 
 trait MessageLog {
-    fn add<T: Into<String>>(&mut self, message: T, color: Color);
+    fn add<T: Into<String>>(&mut self, message: T, color: [f32; 4]);
 }
 
-impl MessageLog for Vec<(String, Color)> {
-    fn add<T: Into<String>>(&mut self, message: T, color: Color) {
+impl MessageLog for Vec<(String, [f32; 4])> {
+    fn add<T: Into<String>>(&mut self, message: T, color: [f32; 4]) {
         if self.len() == MSG_HEIGHT {
             self.remove(0);
         }
@@ -356,7 +346,7 @@ impl MessageLog for Vec<(String, Color)> {
     }
 }
 
-fn next_level(game: &mut Game, objects: &mut Vec<Object>, tcod: &mut Tcod) {
+fn next_level(game: &mut Game, objects: &mut Vec<Object>, ui: &mut Ui) {
     game.log.add(
         "You take a moment to rest, and recover your strength.",
         colors::VIOLET,
@@ -370,10 +360,10 @@ fn next_level(game: &mut Game, objects: &mut Vec<Object>, tcod: &mut Tcod) {
     );
     game.dungeon_level += 1;
     game.map = make_map(objects, game.dungeon_level);
-    initialize_fov(&game.map, tcod);
+    initialize_fov(&game.map, ui);
 }
 
-fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
+fn level_up(objects: &mut [Object], game: &mut Game, ui: &mut Ui) {
     let player = &mut objects[PLAYER];
     let level_up_xp = LEVEL_UP_BASE + game.player_level * LEVEL_UP_FACTOR;
     if player.fighter.as_ref().map_or(0, |f| f.xp) >= level_up_xp {
@@ -397,7 +387,7 @@ fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
                     format!("Agility (+1 defense, from {})", fighter.base_defense),
                 ],
                 LEVEL_SCREEN_WIDTH,
-                &mut tcod.root,
+                &mut ui.root,
             );
         }
         fighter.xp -= level_up_xp;
@@ -417,7 +407,7 @@ fn level_up(objects: &mut [Object], game: &mut Game, tcod: &mut Tcod) {
     }
 }
 
-fn msgbox(text: &str, width: i32, root: &mut Root) {
+fn msgbox(text: &str, width: i32, root: &mut Console) {
     let options: &[&str] = &[];
     menu(text, options, width, root);
 }
